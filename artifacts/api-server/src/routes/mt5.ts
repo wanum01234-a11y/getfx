@@ -18,11 +18,17 @@ type Mt5TradePayload = {
 
 type Mt5WebhookPayload = {
   trades?: Mt5TradePayload[];
+  closedTrades?: Mt5TradePayload[];
   trade?: Mt5TradePayload;
   balance?: number;
   equity?: number;
   currency?: string;
   timestamp?: string;
+};
+
+type Mt5ValidationIssue = {
+  path: string;
+  message: string;
 };
 
 export type UiTrade = {
@@ -70,6 +76,77 @@ const allowNoKey = () => {
 };
 
 const hasDatabase = () => Boolean(process.env.DATABASE_URL);
+
+const parseIncomingWebhookBody = (rawBody: unknown): { ok: true; body: Mt5WebhookPayload } | { ok: false; error: string } => {
+  if (rawBody && typeof rawBody === "object") {
+    return { ok: true, body: rawBody as Mt5WebhookPayload };
+  }
+
+  if (typeof rawBody === "string") {
+    try {
+      const parsed = JSON.parse(rawBody) as unknown;
+      if (!parsed || typeof parsed !== "object") return { ok: false, error: "Invalid JSON body" };
+      return { ok: true, body: parsed as Mt5WebhookPayload };
+    } catch {
+      return { ok: false, error: "Invalid JSON body" };
+    }
+  }
+
+  if (rawBody instanceof Uint8Array) {
+    try {
+      const text = new TextDecoder("utf-8").decode(rawBody);
+      const parsed = JSON.parse(text) as unknown;
+      if (!parsed || typeof parsed !== "object") return { ok: false, error: "Invalid JSON body" };
+      return { ok: true, body: parsed as Mt5WebhookPayload };
+    } catch {
+      return { ok: false, error: "Invalid JSON body" };
+    }
+  }
+
+  return { ok: false, error: "Invalid JSON body" };
+};
+
+const validateMt5WebhookPayload = (body: Mt5WebhookPayload): Mt5ValidationIssue[] => {
+  const issues: Mt5ValidationIssue[] = [];
+
+  const trades = Array.isArray(body.trades) ? body.trades : [];
+  const closedTrades = Array.isArray(body.closedTrades) ? body.closedTrades : [];
+  const single = body.trade ? [body.trade] : [];
+  const allTrades = [...trades, ...closedTrades, ...single];
+
+  const hasAnyTrade = allTrades.length > 0;
+  const hasAccountSnapshot =
+    body.balance !== undefined ||
+    body.equity !== undefined ||
+    (typeof body.currency === "string" && body.currency.trim().length > 0);
+
+  if (!hasAnyTrade && !hasAccountSnapshot) {
+    issues.push({
+      path: "root",
+      message: "Payload must include at least one trade (trades/trade/closedTrades) or account snapshot fields (balance/equity/currency).",
+    });
+  }
+
+  allTrades.forEach((t, idx) => {
+    if (!t || typeof t !== "object") {
+      issues.push({ path: `trades[${idx}]`, message: "Trade must be an object." });
+      return;
+    }
+
+    const ticket = (t as Mt5TradePayload).ticket;
+    const ticketStr = coalesceString(ticket);
+    if (!ticketStr) {
+      issues.push({ path: `trades[${idx}].ticket`, message: "ticket is required." });
+    }
+
+    const symbol = (t as Mt5TradePayload).symbol;
+    if (symbol !== undefined && String(symbol).trim().length === 0) {
+      issues.push({ path: `trades[${idx}].symbol`, message: "symbol cannot be empty when provided." });
+    }
+  });
+
+  return issues;
+};
 
 type DbTradeRow = {
   id: string;
@@ -288,17 +365,43 @@ router.post("/webhook/mt5", async (req, res) => {
   }
 
   const rawBody: unknown = req.body;
-  if (!rawBody || typeof rawBody !== "object") {
-    res.status(400).json({ error: "Invalid JSON body" });
+  req.log.info(
+    {
+      contentType: req.get("content-type"),
+      query: req.query,
+      bodyType: rawBody === null ? "null" : typeof rawBody,
+      body: rawBody,
+    },
+    "MT5 webhook received",
+  );
+
+  const parsed = parseIncomingWebhookBody(rawBody);
+  if (!parsed.ok) {
+    req.log.warn(
+      {
+        contentType: req.get("content-type"),
+        query: req.query,
+        bodyType: rawBody === null ? "null" : typeof rawBody,
+        body: rawBody,
+      },
+      "MT5 webhook invalid JSON body",
+    );
+    res.status(400).json({ error: parsed.error });
     return;
   }
 
-  const body = rawBody as Mt5WebhookPayload;
-  const trades = Array.isArray(body.trades)
-    ? body.trades
-    : body.trade
-      ? [body.trade]
-      : [];
+  const body = parsed.body;
+  const issues = validateMt5WebhookPayload(body);
+  if (issues.length > 0) {
+    req.log.warn({ issues, body }, "MT5 webhook validation failed");
+    res.status(400).json({ error: "ValidationError", issues });
+    return;
+  }
+
+  const tradeList = Array.isArray(body.trades) ? body.trades : [];
+  const closedTradeList = Array.isArray(body.closedTrades) ? body.closedTrades : [];
+  const singleTrade = body.trade ? [body.trade] : [];
+  const trades = [...tradeList, ...closedTradeList, ...singleTrade];
 
   const mappedTrades: Array<{ trade: UiTrade; raw: Mt5TradePayload; previous?: UiTrade }> = [];
   const events: Array<{ kind: "open" | "closed"; trade: UiTrade }> = [];
