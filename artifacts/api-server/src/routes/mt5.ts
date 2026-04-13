@@ -513,6 +513,7 @@ router.post("/webhook/mt5", async (req, res) => {
       timestamp: coalesceString(body.timestamp) ?? new Date().toISOString(),
     };
 
+    let persisted = false;
     if (hasDatabase()) {
       try {
         const client = await getDbClient();
@@ -607,14 +608,30 @@ router.post("/webhook/mt5", async (req, res) => {
             req.log.warn({ err }, "MT5 webhook WhatsApp automation error (ignored)");
           }
         }
+
+        persisted = true;
       } catch (err) {
-        req.log.error({ err, body }, "MT5 webhook failed to persist MT5 data");
-        res.status(500).json({ error: "Failed to persist MT5 data" });
-        return;
+        const anyErr = err as {
+          code?: string;
+          cause?: { code?: string; message?: string };
+          message?: string;
+        };
+        const code = anyErr?.code || anyErr?.cause?.code;
+        const msg = String(anyErr?.message || anyErr?.cause?.message || "");
+        const relationMissing = code === "42P01" || msg.includes("does not exist") || msg.includes("relation \"mt5_trades\"");
+
+        if (relationMissing) {
+          req.log.error({ err }, "MT5 webhook database schema missing (run drizzle push). Skipping persistence.");
+          persisted = false;
+        } else {
+          req.log.error({ err, body }, "MT5 webhook failed to persist MT5 data");
+          res.status(500).json({ error: "Failed to persist MT5 data" });
+          return;
+        }
       }
     }
 
-    res.json({ ok: true, processed: mappedTrades.length });
+    res.json({ ok: true, processed: mappedTrades.length, persisted });
   } catch (err) {
     req.log.error({ err }, "MT5 webhook unhandled error");
     res.status(500).json({ error: "InternalError" });
