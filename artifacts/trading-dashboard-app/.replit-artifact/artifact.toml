@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Trading Dashboard"
+version = "1.0.0"
+id = "artifacts/trading-dashboard-app"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22584
+
+[services.development]
+run = "pnpm --filter @workspace/trading-dashboard-app run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/trading-dashboard-app", "run", "build" ]
+publicDir = "artifacts/trading-dashboard-app/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22584"
+BASE_PATH = "/"
