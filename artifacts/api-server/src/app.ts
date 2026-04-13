@@ -45,16 +45,26 @@ app.use(
   express.text({
     type: ["application/json", "text/plain", "*/*"],
     limit: "1mb",
-  }),
-);
-
-app.use(
-  express.json({
     verify: (req, _res, buf) => {
       (req as express.Request).rawBody = buf?.toString("utf8");
     },
   }),
 );
+
+const jsonParser = express.json({
+  verify: (req, _res, buf) => {
+    (req as express.Request).rawBody = buf?.toString("utf8");
+  },
+});
+
+app.use((req, res, next) => {
+  if (req.path === "/api/webhook/mt5") {
+    next();
+    return;
+  }
+
+  jsonParser(req, res, next);
+});
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
