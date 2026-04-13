@@ -58,7 +58,7 @@ const jsonParser = express.json({
 });
 
 app.use((req, res, next) => {
-  if (req.path === "/api/webhook/mt5") {
+  if (req.path === "/api/webhook/mt5" || req.path.startsWith("/api/webhook/mt5/")) {
     next();
     return;
   }

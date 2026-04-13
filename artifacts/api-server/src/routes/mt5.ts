@@ -433,183 +433,192 @@ router.get("/settings/mt5", (req, res) => {
 });
 
 router.post("/webhook/mt5", async (req, res) => {
-  const key = String(req.query.key ?? "");
-  const requireKey = !allowNoKey();
-  if (requireKey) {
-    if (!key) {
-      req.log.warn({ query: req.query }, "MT5 webhook missing key");
-      res.status(401).json({ error: "Unauthorized" });
-      return;
+  try {
+    const key = String(req.query.key ?? "");
+    const requireKey = !allowNoKey();
+    if (requireKey) {
+      if (!key) {
+        req.log.warn({ query: req.query }, "MT5 webhook missing key");
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      if (key !== MT5_SECRET) {
+        req.log.warn({ query: req.query }, "MT5 webhook invalid key");
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      req.log.info("MT5 webhook key validated");
     }
-    if (key !== MT5_SECRET) {
-      req.log.warn({ query: req.query }, "MT5 webhook invalid key");
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-    req.log.info("MT5 webhook key validated");
-  }
 
-  const rawBody: unknown = req.body;
-  req.log.info(
-    {
-      contentType: req.get("content-type"),
-      query: req.query,
-      bodyType: rawBody === null ? "null" : typeof rawBody,
-      body: typeof rawBody === "string" ? sanitizePossibleJsonText(rawBody) : rawBody,
-    },
-    "MT5 webhook received",
-  );
-
-  const parsed = parseIncomingWebhookBody(rawBody);
-  if (!parsed.ok) {
-    req.log.warn(
+    const rawBody: unknown = req.body;
+    req.log.info(
       {
         contentType: req.get("content-type"),
         query: req.query,
         bodyType: rawBody === null ? "null" : typeof rawBody,
-        body: rawBody,
+        body: typeof rawBody === "string" ? sanitizePossibleJsonText(rawBody) : rawBody,
       },
-      "MT5 webhook invalid JSON body",
+      "MT5 webhook received",
     );
-    res.status(400).json({ error: parsed.error });
-    return;
-  }
 
-  const body = parsed.body;
-  const issues = validateMt5WebhookPayload(body);
-  if (issues.length > 0) {
-    req.log.warn({ issues, body }, "MT5 webhook validation failed");
-    res.status(400).json({ error: "ValidationError", issues });
-    return;
-  }
-
-  const tradeList = Array.isArray(body.trades) ? body.trades : [];
-  const closedTradeList = Array.isArray(body.closedTrades) ? body.closedTrades : [];
-  const singleTrade = body.trade ? [body.trade] : [];
-  const trades = [...tradeList, ...closedTradeList, ...singleTrade];
-
-  const mappedTrades: Array<{ trade: UiTrade; raw: Mt5TradePayload; previous?: UiTrade }> = [];
-  const events: Array<{ kind: "open" | "closed"; trade: UiTrade }> = [];
-  for (const t of trades) {
-    const mapped = mapMt5TradeToUiTrade(t);
-    if (mapped) {
-      const existing = store.tradesById.get(mapped.id);
-      const merged = mergeUiTrade(existing, mapped);
-      store.tradesById.set(mapped.id, merged);
-      mappedTrades.push({ trade: merged, raw: t, previous: existing });
-
-      if (!existing && merged.status === "Open") events.push({ kind: "open", trade: merged });
-      if (existing && existing.status === "Open" && merged.status === "Closed") events.push({ kind: "closed", trade: merged });
+    const parsed = parseIncomingWebhookBody(rawBody);
+    if (!parsed.ok) {
+      req.log.warn(
+        {
+          contentType: req.get("content-type"),
+          query: req.query,
+          bodyType: rawBody === null ? "null" : typeof rawBody,
+          body: rawBody,
+        },
+        "MT5 webhook invalid JSON body",
+      );
+      res.status(400).json({ error: parsed.error });
+      return;
     }
-  }
 
-  store.lastAccountSnapshot = {
-    balance: coalesceNumber(body.balance) ?? store.lastAccountSnapshot.balance,
-    equity: coalesceNumber(body.equity) ?? store.lastAccountSnapshot.equity,
-    currency: coalesceString(body.currency) ?? store.lastAccountSnapshot.currency,
-    timestamp: coalesceString(body.timestamp) ?? new Date().toISOString(),
-  };
+    const body = parsed.body;
+    const issues = validateMt5WebhookPayload(body);
+    if (issues.length > 0) {
+      req.log.warn({ issues, body }, "MT5 webhook validation failed");
+      res.status(400).json({ error: "ValidationError", issues });
+      return;
+    }
 
-  if (hasDatabase()) {
-    try {
-      const client = await getDbClient();
-      if (!client) {
-        res.status(500).json({ error: "Database is not available" });
-        return;
+    const tradeList = Array.isArray(body.trades) ? body.trades : [];
+    const closedTradeList = Array.isArray(body.closedTrades) ? body.closedTrades : [];
+    const singleTrade = body.trade ? [body.trade] : [];
+    const trades = [...tradeList, ...closedTradeList, ...singleTrade];
+
+    const mappedTrades: Array<{ trade: UiTrade; raw: Mt5TradePayload; previous?: UiTrade }> = [];
+    const events: Array<{ kind: "open" | "closed"; trade: UiTrade }> = [];
+    for (const t of trades) {
+      const mapped = mapMt5TradeToUiTrade(t);
+      if (mapped) {
+        const existing = store.tradesById.get(mapped.id);
+        const merged = mergeUiTrade(existing, mapped);
+        store.tradesById.set(mapped.id, merged);
+        mappedTrades.push({ trade: merged, raw: t, previous: existing });
+
+        if (!existing && merged.status === "Open") events.push({ kind: "open", trade: merged });
+        if (existing && existing.status === "Open" && merged.status === "Closed") {
+          events.push({ kind: "closed", trade: merged });
+        }
       }
+    }
 
-      const { db, mt5TradesTable, mt5AccountTable, appSettingsTable, eq } = client;
+    store.lastAccountSnapshot = {
+      balance: coalesceNumber(body.balance) ?? store.lastAccountSnapshot.balance,
+      equity: coalesceNumber(body.equity) ?? store.lastAccountSnapshot.equity,
+      currency: coalesceString(body.currency) ?? store.lastAccountSnapshot.currency,
+      timestamp: coalesceString(body.timestamp) ?? new Date().toISOString(),
+    };
 
-      for (const { trade, raw } of mappedTrades) {
-        const tradeSet: Record<string, unknown> = {
-          symbol: trade.symbol,
-          type: trade.type,
-          lot: toDbNumeric(trade.lot) ?? "0",
-          entryPrice: toDbNumeric(trade.entryPrice) ?? "0",
-          profit: toDbNumeric(trade.profit) ?? "0",
-          status: trade.status,
-          openedAt: toDbTimestamp(trade.openedAt) ?? new Date(),
-          updatedAt: new Date(),
-        };
+    if (hasDatabase()) {
+      try {
+        const client = await getDbClient();
+        if (!client) {
+          req.log.error("MT5 webhook database client unavailable");
+          res.status(500).json({ error: "Database is not available" });
+          return;
+        }
 
-        if (hasOwn(raw, "currentPrice")) tradeSet.currentPrice = toDbNumeric(trade.currentPrice) ?? null;
-        if (hasOwn(raw, "closePrice")) tradeSet.closePrice = toDbNumeric(trade.closePrice) ?? null;
-        if (hasOwn(raw, "profit")) tradeSet.profit = toDbNumeric(trade.profit) ?? "0";
-        if (hasOwn(raw, "closedAt")) tradeSet.closedAt = toDbTimestamp(trade.closedAt) ?? null;
-        if (hasOwn(raw, "openedAt")) tradeSet.openedAt = toDbTimestamp(trade.openedAt) ?? new Date();
+        const { db, mt5TradesTable, mt5AccountTable, appSettingsTable, eq } = client;
 
-        await db
-          .insert(mt5TradesTable)
-          .values({
-            id: trade.id,
+        for (const { trade, raw } of mappedTrades) {
+          const tradeSet: Record<string, unknown> = {
             symbol: trade.symbol,
             type: trade.type,
             lot: toDbNumeric(trade.lot) ?? "0",
             entryPrice: toDbNumeric(trade.entryPrice) ?? "0",
-            currentPrice: toDbNumeric(trade.currentPrice) ?? null,
-            closePrice: toDbNumeric(trade.closePrice) ?? null,
             profit: toDbNumeric(trade.profit) ?? "0",
             status: trade.status,
             openedAt: toDbTimestamp(trade.openedAt) ?? new Date(),
-            closedAt: toDbTimestamp(trade.closedAt) ?? null,
-            raw,
-          })
-          .onConflictDoUpdate({
-            target: mt5TradesTable.id,
-            set: tradeSet as never,
-          });
-      }
+            updatedAt: new Date(),
+          };
 
-      await db
-        .insert(mt5AccountTable)
-        .values({
-          id: "default",
-          balance: toDbNumeric(store.lastAccountSnapshot.balance),
-          equity: toDbNumeric(store.lastAccountSnapshot.equity),
-          currency: store.lastAccountSnapshot.currency ?? null,
-          timestamp: toDbTimestamp(store.lastAccountSnapshot.timestamp),
-        })
-        .onConflictDoUpdate({
-          target: mt5AccountTable.id,
-          set: {
+          if (hasOwn(raw, "currentPrice")) tradeSet.currentPrice = toDbNumeric(trade.currentPrice) ?? null;
+          if (hasOwn(raw, "closePrice")) tradeSet.closePrice = toDbNumeric(trade.closePrice) ?? null;
+          if (hasOwn(raw, "profit")) tradeSet.profit = toDbNumeric(trade.profit) ?? "0";
+          if (hasOwn(raw, "closedAt")) tradeSet.closedAt = toDbTimestamp(trade.closedAt) ?? null;
+          if (hasOwn(raw, "openedAt")) tradeSet.openedAt = toDbTimestamp(trade.openedAt) ?? new Date();
+
+          await db
+            .insert(mt5TradesTable)
+            .values({
+              id: trade.id,
+              symbol: trade.symbol,
+              type: trade.type,
+              lot: toDbNumeric(trade.lot) ?? "0",
+              entryPrice: toDbNumeric(trade.entryPrice) ?? "0",
+              currentPrice: toDbNumeric(trade.currentPrice) ?? null,
+              closePrice: toDbNumeric(trade.closePrice) ?? null,
+              profit: toDbNumeric(trade.profit) ?? "0",
+              status: trade.status,
+              openedAt: toDbTimestamp(trade.openedAt) ?? new Date(),
+              closedAt: toDbTimestamp(trade.closedAt) ?? null,
+              raw,
+            })
+            .onConflictDoUpdate({
+              target: mt5TradesTable.id,
+              set: tradeSet as never,
+            });
+        }
+
+        await db
+          .insert(mt5AccountTable)
+          .values({
+            id: "default",
             balance: toDbNumeric(store.lastAccountSnapshot.balance),
             equity: toDbNumeric(store.lastAccountSnapshot.equity),
             currency: store.lastAccountSnapshot.currency ?? null,
             timestamp: toDbTimestamp(store.lastAccountSnapshot.timestamp),
-            updatedAt: new Date(),
-          },
-        });
+          })
+          .onConflictDoUpdate({
+            target: mt5AccountTable.id,
+            set: {
+              balance: toDbNumeric(store.lastAccountSnapshot.balance),
+              equity: toDbNumeric(store.lastAccountSnapshot.equity),
+              currency: store.lastAccountSnapshot.currency ?? null,
+              timestamp: toDbTimestamp(store.lastAccountSnapshot.timestamp),
+              updatedAt: new Date(),
+            },
+          });
 
-      if (events.length > 0) {
-        try {
-          const rows = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, SETTINGS_KEY)).limit(1);
-          const raw = (rows[0] as { value?: unknown } | undefined)?.value;
-          const settings = parseStoredSettings(raw);
-          if (settings?.enabled) {
-            const { buildWhatsAppMessage, DEFAULT_WHATSAPP_TEMPLATE, sendWhatsAppMessage } = await import(
-              "../lib/whatsapp-automation"
-            );
+        if (events.length > 0) {
+          try {
+            const rows = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, SETTINGS_KEY)).limit(1);
+            const raw = (rows[0] as { value?: unknown } | undefined)?.value;
+            const settings = parseStoredSettings(raw);
+            if (settings?.enabled) {
+              const { buildWhatsAppMessage, DEFAULT_WHATSAPP_TEMPLATE, sendWhatsAppMessage } = await import(
+                "../lib/whatsapp-automation",
+              );
 
-            for (const event of events) {
-              if (event.kind === "open" && !settings.sendOpenAlerts) continue;
-              if (event.kind === "closed" && !settings.sendClosedAlerts) continue;
+              for (const event of events) {
+                if (event.kind === "open" && !settings.sendOpenAlerts) continue;
+                if (event.kind === "closed" && !settings.sendClosedAlerts) continue;
 
-              const template = settings.template || DEFAULT_WHATSAPP_TEMPLATE;
-              const message = buildWhatsAppMessage(event.trade, template);
-              await sendWhatsAppMessage(settings, message);
+                const template = settings.template || DEFAULT_WHATSAPP_TEMPLATE;
+                const message = buildWhatsAppMessage(event.trade, template);
+                await sendWhatsAppMessage(settings, message);
+              }
             }
+          } catch (err) {
+            req.log.warn({ err }, "MT5 webhook WhatsApp automation error (ignored)");
           }
-        } catch {
-          // ignore automation errors to avoid breaking webhook
         }
+      } catch (err) {
+        req.log.error({ err, body }, "MT5 webhook failed to persist MT5 data");
+        res.status(500).json({ error: "Failed to persist MT5 data" });
+        return;
       }
-    } catch {
-      res.status(500).json({ error: "Failed to persist MT5 data" });
-      return;
     }
-  }
 
-  res.json({ ok: true, processed: mappedTrades.length });
+    res.json({ ok: true, processed: mappedTrades.length });
+  } catch (err) {
+    req.log.error({ err }, "MT5 webhook unhandled error");
+    res.status(500).json({ error: "InternalError" });
+  }
 });
 
 router.get("/mt5/trades/open", async (_req, res) => {
