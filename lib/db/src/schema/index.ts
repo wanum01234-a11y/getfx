@@ -20,3 +20,4 @@
 export * from "./mt5-trades.ts";
 export * from "./mt5-account.ts";
 export * from "./app-settings.ts";
+export * from "./settings.ts";

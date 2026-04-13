@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import { Copy, Link as LinkIcon, Webhook } from "lucide-react";
+import { clearAllData, saveSetting } from "@/lib/settings";
 
 const USE_DEMO_STORAGE_KEY = "nexus-use-demo-data";
 
@@ -15,12 +17,14 @@ const getUseDemoDefault = () => {
 };
 
 export default function SettingsPage() {
+  const queryClient = useQueryClient();
   const [useDemoData, setUseDemoData] = useState(getUseDemoDefault);
   const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
   const [webhookUrlNoKey, setWebhookUrlNoKey] = useState<string | null>(null);
   const [requireKey, setRequireKey] = useState<boolean>(true);
   const [includeKey, setIncludeKey] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   const resolvedWebhookUrl = useMemo(() => {
     if (webhookUrl && includeKey) return webhookUrl;
@@ -35,6 +39,28 @@ export default function SettingsPage() {
     setUseDemoData(next);
     window.localStorage.setItem(USE_DEMO_STORAGE_KEY, String(next));
     window.dispatchEvent(new CustomEvent("nexus-demo-mode-updated", { detail: next }));
+
+    // API-first persistence (safe): if API fails, localStorage still controls behavior.
+    saveSetting("demo_mode", String(next)).catch(() => {
+      // ignore (fallback remains localStorage)
+    });
+  };
+
+  const onClearAllData = async () => {
+    setIsClearing(true);
+    try {
+      await clearAllData();
+      await queryClient.invalidateQueries({ queryKey: ["mt5"] });
+      toast({ title: "Cleared", description: "All dashboard data was cleared." });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to clear data",
+        description: "Make sure the API server is running.",
+      });
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   const loadWebhookUrl = async () => {
@@ -141,6 +167,16 @@ export default function SettingsPage() {
                 </div>
               </div>
               <Switch checked={useDemoData} onCheckedChange={toggleUseDemo} />
+            </div>
+
+            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <div>
+                <div className="text-sm font-semibold text-white">Clear All Data</div>
+                <div className="text-xs text-muted-foreground mt-1">Deletes trades and account snapshots from the server (keeps settings).</div>
+              </div>
+              <Button variant="destructive" onClick={onClearAllData} disabled={isClearing}>
+                {isClearing ? "Clearing..." : "Clear All Data"}
+              </Button>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-3">
