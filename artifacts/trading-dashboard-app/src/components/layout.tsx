@@ -46,6 +46,7 @@ export function Layout({ children }: LayoutProps) {
     { name: "WhatsApp Template", href: "/whatsapp-template", icon: MessageCircle },
     { name: "WhatsApp Automation", href: "/whatsapp-automation", icon: MessageCircle },
     { name: "Settings", href: "/settings", icon: Settings },
+    { name: "Pip Configuration", href: "/settings/pip-config", icon: Settings },
   ];
 
   return (

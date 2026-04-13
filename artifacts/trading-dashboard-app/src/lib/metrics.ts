@@ -1,5 +1,7 @@
 import type { Trade } from "@/lib/mock-data";
 
+export type PipSizeOverrides = Record<string, number>;
+
 export type DashboardMetrics = {
   totalTrades: number;
   totalProfit: number;
@@ -34,7 +36,7 @@ export const getPipSize = (symbol: string): number | null => {
   return 1;
 };
 
-export const calcTradePips = (trade: Trade) => {
+export const calcTradePips = (trade: Trade, pipSizeOverrides?: PipSizeOverrides) => {
   if (trade.status !== "Closed") return 0;
   if (!Number.isFinite(trade.entryPrice)) return 0;
   if (!Number.isFinite(trade.closePrice)) return 0;
@@ -43,7 +45,9 @@ export const calcTradePips = (trade: Trade) => {
   const close = trade.closePrice as number;
   const diff = trade.type === "Sell" ? entry - close : close - entry;
 
-  const pipSize = getPipSize(trade.symbol);
+  const symbolKey = normalizeSymbolKey(trade.symbol);
+  const override = pipSizeOverrides?.[symbolKey];
+  const pipSize = override !== undefined ? override : getPipSize(trade.symbol);
   const rawPips = pipSize === null ? diff : diff / pipSize;
 
   if (!Number.isFinite(rawPips)) return 0;
@@ -72,7 +76,11 @@ export const dedupeTradesById = (trades: Trade[]) => {
   return Array.from(map.values());
 };
 
-export const calculateMetrics = (input: { openTrades: Trade[]; closedTrades: Trade[] }): DashboardMetrics => {
+export const calculateMetrics = (input: {
+  openTrades: Trade[];
+  closedTrades: Trade[];
+  pipSizeOverrides?: PipSizeOverrides;
+}): DashboardMetrics => {
   const uniqueOpen = dedupeTradesById(input.openTrades);
   const uniqueClosed = dedupeTradesById(input.closedTrades).filter((t) => t.status === "Closed");
   const uniqueAll = dedupeTradesById([...uniqueOpen, ...uniqueClosed]);
@@ -80,7 +88,7 @@ export const calculateMetrics = (input: { openTrades: Trade[]; closedTrades: Tra
   const totalProfit = uniqueAll.reduce((sum, t) => sum + (Number.isFinite(t.profit) ? t.profit : 0), 0);
   const wins = uniqueClosed.filter((t) => (Number.isFinite(t.profit) ? t.profit : 0) > 0).length;
   const winRate = uniqueClosed.length > 0 ? Number(((wins / uniqueClosed.length) * 100).toFixed(1)) : 0;
-  const totalPips = uniqueClosed.reduce((sum, t) => sum + calcTradePips(t), 0);
+  const totalPips = uniqueClosed.reduce((sum, t) => sum + calcTradePips(t, input.pipSizeOverrides), 0);
 
   return {
     totalTrades: uniqueAll.length,

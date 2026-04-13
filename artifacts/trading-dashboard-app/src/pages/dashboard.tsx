@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion, type Variants } from "framer-motion";
 import { Layout } from "@/components/layout";
 import { mockDashboardStats, mockChartDataDaily, mockChartDataWeekly, mockChartDataMonthly, type Trade } from "@/lib/mock-data";
 import { useDemoMode, useMt5Trades } from "@/lib/mt5";
 import { calculateMetrics, dedupeTradesById } from "@/lib/metrics";
+import { fetchPipSettings } from "@/lib/pip-settings";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { ArrowUpRight, ArrowDownRight, TrendingUp, Activity, Hash, Briefcase } from "lucide-react";
 
@@ -47,6 +49,13 @@ export default function Dashboard() {
   const closedTradesQuery = useMt5Trades("closed", !useDemo);
   const [timeframe, setTimeframe] = useState<"Daily" | "Weekly" | "Monthly">("Weekly");
 
+  const pipSettingsQuery = useQuery({
+    queryKey: ["pip-settings"],
+    queryFn: fetchPipSettings,
+    enabled: !useDemo,
+    staleTime: 60_000,
+  });
+
   const openTrades = useMemo<Trade[]>(() => {
     if (useDemo) return [];
     return Array.isArray(openTradesQuery.data) ? openTradesQuery.data : [];
@@ -57,11 +66,27 @@ export default function Dashboard() {
     return Array.isArray(closedTradesQuery.data) ? closedTradesQuery.data : [];
   }, [closedTradesQuery.data, useDemo]);
 
+  const pipSizeOverrides = useMemo(() => {
+    const rows = Array.isArray(pipSettingsQuery.data) ? pipSettingsQuery.data : [];
+    const map: Record<string, number> = {};
+    for (const row of rows) {
+      const symbol = String(row.symbol ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "");
+      const pipSize = Number(row.pipSize);
+      if (!symbol) continue;
+      if (!Number.isFinite(pipSize) || pipSize <= 0 || pipSize > 1_000_000) continue;
+      map[symbol] = pipSize;
+    }
+    return map;
+  }, [pipSettingsQuery.data]);
+
   const resolvedStats = useMemo(() => {
     if (useDemo) return mockDashboardStats;
 
-    return calculateMetrics({ openTrades, closedTrades });
-  }, [closedTrades, openTrades, useDemo]);
+    return calculateMetrics({ openTrades, closedTrades, pipSizeOverrides });
+  }, [closedTrades, openTrades, pipSizeOverrides, useDemo]);
 
   const chartData = useMemo(() => {
     if (useDemo) {
