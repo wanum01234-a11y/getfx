@@ -6,6 +6,67 @@ import { useDemoMode, useMt5Trades } from "@/lib/mt5";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { ArrowUpRight, ArrowDownRight, TrendingUp, Activity, Hash, Briefcase } from "lucide-react";
 
+const normalizeSymbolKey = (symbol: string) => {
+  return String(symbol || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+};
+
+const getPipSize = (symbol: string): number | null => {
+  const key = normalizeSymbolKey(symbol);
+
+  if (key.includes("BTC") || key.includes("ETH")) return null;
+
+  if (key.includes("XAU")) return 0.01;
+  if (key.includes("XAG")) return 0.01;
+  if (key.includes("USOIL") || key.includes("WTI")) return 0.01;
+
+  if (key.includes("US30") || key.includes("NAS") || key.includes("SPX")) return 1;
+
+  if (key.endsWith("JPY")) return 0.01;
+
+  const looksLikeForex = /^[A-Z]{6}$/.test(key);
+  if (looksLikeForex) return 0.0001;
+
+  return 1;
+};
+
+const calcPips = (trade: Trade) => {
+  if (trade.status !== "Closed") return 0;
+  if (!Number.isFinite(trade.entryPrice)) return 0;
+  if (!Number.isFinite(trade.closePrice)) return 0;
+
+  const entry = trade.entryPrice;
+  const close = trade.closePrice as number;
+  const rawDiff = trade.type === "Sell" ? entry - close : close - entry;
+
+  const pipSize = getPipSize(trade.symbol);
+  if (pipSize === null) return rawDiff;
+  if (!Number.isFinite(pipSize)) return 0;
+
+  return rawDiff / pipSize;
+};
+
+const dedupeTradesById = (trades: Trade[]) => {
+  const map = new Map<string, Trade>();
+  for (const t of trades) {
+    if (!t || !t.id) continue;
+    const existing = map.get(t.id);
+    if (!existing) {
+      map.set(t.id, t);
+      continue;
+    }
+
+    if (existing.status !== "Closed" && t.status === "Closed") {
+      map.set(t.id, t);
+      continue;
+    }
+
+    map.set(t.id, { ...existing, ...t });
+  }
+  return Array.from(map.values());
+};
+
 export default function Dashboard() {
   const useDemo = useDemoMode();
   const openTradesQuery = useMt5Trades("open", !useDemo);
@@ -25,17 +86,19 @@ export default function Dashboard() {
   const resolvedStats = useMemo(() => {
     if (useDemo) return mockDashboardStats;
 
-    const allTrades = [...openTrades, ...closedTrades];
-    const totalProfit = allTrades.reduce((sum, t) => sum + (Number.isFinite(t.profit) ? t.profit : 0), 0);
-    const wins = closedTrades.filter((t) => (Number.isFinite(t.profit) ? t.profit : 0) > 0).length;
-    const winRate = closedTrades.length > 0 ? Number(((wins / closedTrades.length) * 100).toFixed(1)) : 0;
+    const uniqueAllTrades = dedupeTradesById([...openTrades, ...closedTrades]);
+    const uniqueClosedTrades = dedupeTradesById(closedTrades).filter((t) => t.status === "Closed");
+    const totalProfit = uniqueAllTrades.reduce((sum, t) => sum + (Number.isFinite(t.profit) ? t.profit : 0), 0);
+    const wins = uniqueClosedTrades.filter((t) => (Number.isFinite(t.profit) ? t.profit : 0) > 0).length;
+    const winRate = uniqueClosedTrades.length > 0 ? Number(((wins / uniqueClosedTrades.length) * 100).toFixed(1)) : 0;
+    const totalPips = uniqueClosedTrades.reduce((sum, t) => sum + calcPips(t), 0);
 
     return {
-      totalTrades: allTrades.length,
+      totalTrades: uniqueAllTrades.length,
       totalProfit,
-      totalPips: 0,
-      openTradesCount: openTrades.length,
-      closedTradesCount: closedTrades.length,
+      totalPips: Number.isFinite(totalPips) ? Number(totalPips.toFixed(1)) : 0,
+      openTradesCount: dedupeTradesById(openTrades).length,
+      closedTradesCount: uniqueClosedTrades.length,
       winRate,
     };
   }, [closedTrades, openTrades, useDemo]);

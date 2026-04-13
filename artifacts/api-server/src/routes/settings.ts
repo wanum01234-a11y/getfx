@@ -1,4 +1,6 @@
 import { Router, type IRouter } from "express";
+import { eq } from "drizzle-orm";
+import { clearMt5InMemoryStore } from "./mt5";
 
 type SettingsRow = {
   id: number;
@@ -81,9 +83,11 @@ router.post("/clear-data", async (req, res) => {
 
   try {
     await client.db.transaction(async (tx) => {
-      await tx.delete(client.mt5TradesTable);
-      await tx.delete(client.mt5AccountTable);
+      await tx.delete(client.mt5TradesTable).execute();
+      await tx.delete(client.mt5AccountTable).execute();
     });
+
+    clearMt5InMemoryStore();
 
     res.json({ ok: true });
   } catch (err) {

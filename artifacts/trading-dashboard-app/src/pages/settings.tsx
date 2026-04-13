@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import { Copy, Link as LinkIcon, Webhook } from "lucide-react";
@@ -37,6 +38,7 @@ export default function SettingsPage() {
   const [isClearing, setIsClearing] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [clearStep, setClearStep] = useState<1 | 2>(1);
+  const [clearAcknowledge, setClearAcknowledge] = useState(false);
 
   const resolvedWebhookUrl = useMemo(() => {
     if (webhookUrl && includeKey) return webhookUrl;
@@ -210,8 +212,22 @@ export default function SettingsPage() {
                       : "This will permanently delete ALL MT5 trades (open + closed) and account snapshots. This action cannot be undone."}
                   </AlertDialogDescription>
                   {clearStep === 2 ? (
-                    <div className="text-sm font-semibold text-red-400">
-                      Warning: your data will be cleared now.
+                    <div className="space-y-3">
+                      <div className="text-sm font-semibold text-red-400">
+                        Warning: your data will be cleared now.
+                      </div>
+                      <div className="text-xs text-red-400/90">
+                        This action will remove real MT5 trades from the database. After clearing, new incoming webhook entries will appear as fresh real data.
+                      </div>
+                      <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-3 cursor-pointer select-none">
+                        <Checkbox
+                          checked={clearAcknowledge}
+                          onCheckedChange={(v) => setClearAcknowledge(v === true)}
+                        />
+                        <span className="text-sm text-muted-foreground leading-5">
+                          I understand this will permanently delete my real MT5 data.
+                        </span>
+                      </label>
                     </div>
                   ) : null}
                 </AlertDialogHeader>
@@ -220,21 +236,29 @@ export default function SettingsPage() {
                     onClick={() => {
                       setClearDialogOpen(false);
                       setClearStep(1);
+                      setClearAcknowledge(false);
                     }}
                   >
                     Cancel
                   </AlertDialogCancel>
 
                   {clearStep === 1 ? (
-                    <AlertDialogAction onClick={() => setClearStep(2)}>
+                    <AlertDialogAction
+                      onClick={() => {
+                        setClearStep(2);
+                        setClearAcknowledge(false);
+                      }}
+                    >
                       Continue
                     </AlertDialogAction>
                   ) : (
                     <AlertDialogAction
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      disabled={!clearAcknowledge || isClearing}
                       onClick={async () => {
                         setClearDialogOpen(false);
                         setClearStep(1);
+                        setClearAcknowledge(false);
                         await onClearAllData();
                       }}
                     >

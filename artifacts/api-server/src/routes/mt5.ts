@@ -4,7 +4,9 @@ import path from "node:path";
 import { logger } from "../lib/logger";
 
 type Mt5TradePayload = {
-  ticket: string | number;
+  trade_id?: string | number;
+  tradeId?: string | number;
+  ticket?: string | number;
   symbol?: string;
   type?: string;
   lot?: number;
@@ -62,6 +64,11 @@ type Mt5Store = {
 const store: Mt5Store = {
   tradesById: new Map<string, UiTrade>(),
   lastAccountSnapshot: {},
+};
+
+export const clearMt5InMemoryStore = () => {
+  store.tradesById.clear();
+  store.lastAccountSnapshot = {};
 };
 
 const generateSecret = () => {
@@ -209,10 +216,10 @@ const validateMt5WebhookPayload = (body: Mt5WebhookPayload): Mt5ValidationIssue[
       return;
     }
 
-    const ticket = (t as Mt5TradePayload).ticket;
-    const ticketStr = coalesceString(ticket);
+    const trade = t as Mt5TradePayload;
+    const ticketStr = coalesceString(trade.trade_id, trade.tradeId, trade.ticket);
     if (!ticketStr) {
-      issues.push({ path: `trades[${idx}].ticket`, message: "ticket is required." });
+      issues.push({ path: `trades[${idx}]`, message: "trade_id (or ticket) is required." });
     }
 
     const symbol = (t as Mt5TradePayload).symbol;
@@ -335,7 +342,7 @@ const sanitizeSymbol = (value: unknown) => {
 };
 
 const mapMt5TradeToUiTrade = (payload: Mt5TradePayload): UiTrade | null => {
-  const id = coalesceString(payload.ticket);
+  const id = coalesceString(payload.trade_id, payload.tradeId, payload.ticket);
   if (!id) return null;
 
   const status = normalizeStatus(payload.status);
