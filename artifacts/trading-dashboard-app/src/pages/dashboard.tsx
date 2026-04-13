@@ -3,68 +3,42 @@ import { motion, type Variants } from "framer-motion";
 import { Layout } from "@/components/layout";
 import { mockDashboardStats, mockChartDataDaily, mockChartDataWeekly, mockChartDataMonthly, type Trade } from "@/lib/mock-data";
 import { useDemoMode, useMt5Trades } from "@/lib/mt5";
+import { calculateMetrics, dedupeTradesById } from "@/lib/metrics";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { ArrowUpRight, ArrowDownRight, TrendingUp, Activity, Hash, Briefcase } from "lucide-react";
 
-const normalizeSymbolKey = (symbol: string) => {
-  return String(symbol || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-};
-
-const getPipSize = (symbol: string): number | null => {
-  const key = normalizeSymbolKey(symbol);
-
-  if (key.includes("BTC") || key.includes("ETH")) return null;
-
-  if (key.includes("XAU")) return 0.01;
-  if (key.includes("XAG")) return 0.01;
-  if (key.includes("USOIL") || key.includes("WTI")) return 0.01;
-
-  if (key.includes("US30") || key.includes("NAS") || key.includes("SPX")) return 1;
-
-  if (key.endsWith("JPY")) return 0.01;
-
-  const looksLikeForex = /^[A-Z]{6}$/.test(key);
-  if (looksLikeForex) return 0.0001;
-
-  return 1;
-};
-
-const calcPips = (trade: Trade) => {
-  if (trade.status !== "Closed") return 0;
-  if (!Number.isFinite(trade.entryPrice)) return 0;
-  if (!Number.isFinite(trade.closePrice)) return 0;
-
-  const entry = trade.entryPrice;
-  const close = trade.closePrice as number;
-  const rawDiff = trade.type === "Sell" ? entry - close : close - entry;
-
-  const pipSize = getPipSize(trade.symbol);
-  if (pipSize === null) return rawDiff;
-  if (!Number.isFinite(pipSize)) return 0;
-
-  return rawDiff / pipSize;
-};
-
-const dedupeTradesById = (trades: Trade[]) => {
-  const map = new Map<string, Trade>();
-  for (const t of trades) {
-    if (!t || !t.id) continue;
-    const existing = map.get(t.id);
-    if (!existing) {
-      map.set(t.id, t);
-      continue;
-    }
-
-    if (existing.status !== "Closed" && t.status === "Closed") {
-      map.set(t.id, t);
-      continue;
-    }
-
-    map.set(t.id, { ...existing, ...t });
+const getTimeBucketLabel = (d: Date, timeframe: "Daily" | "Weekly" | "Monthly") => {
+  if (timeframe === "Daily") {
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   }
-  return Array.from(map.values());
+  if (timeframe === "Weekly") {
+    return d.toLocaleDateString(undefined, { weekday: "short" });
+  }
+  const first = new Date(d.getFullYear(), d.getMonth(), 1);
+  const day = Math.max(1, d.getDate());
+  const week = Math.ceil((day + first.getDay()) / 7);
+  return `Week ${week}`;
+};
+
+const buildEquityCurve = (closedTrades: Trade[], timeframe: "Daily" | "Weekly" | "Monthly") => {
+  const uniqueClosed = dedupeTradesById(closedTrades).filter((t) => t.status === "Closed");
+  const sorted = [...uniqueClosed].sort((a, b) => {
+    const ta = new Date(a.closedAt || a.openedAt || 0).getTime();
+    const tb = new Date(b.closedAt || b.openedAt || 0).getTime();
+    return ta - tb;
+  });
+
+  let cumulative = 0;
+  const buckets = new Map<string, number>();
+  for (const t of sorted) {
+    const profit = Number.isFinite(t.profit) ? t.profit : 0;
+    cumulative += profit;
+    const time = new Date(t.closedAt || t.openedAt || new Date().toISOString());
+    const label = getTimeBucketLabel(time, timeframe);
+    buckets.set(label, cumulative);
+  }
+
+  return Array.from(buckets.entries()).map(([time, profit]) => ({ time, profit }));
 };
 
 export default function Dashboard() {
@@ -86,26 +60,17 @@ export default function Dashboard() {
   const resolvedStats = useMemo(() => {
     if (useDemo) return mockDashboardStats;
 
-    const uniqueAllTrades = dedupeTradesById([...openTrades, ...closedTrades]);
-    const uniqueClosedTrades = dedupeTradesById(closedTrades).filter((t) => t.status === "Closed");
-    const totalProfit = uniqueAllTrades.reduce((sum, t) => sum + (Number.isFinite(t.profit) ? t.profit : 0), 0);
-    const wins = uniqueClosedTrades.filter((t) => (Number.isFinite(t.profit) ? t.profit : 0) > 0).length;
-    const winRate = uniqueClosedTrades.length > 0 ? Number(((wins / uniqueClosedTrades.length) * 100).toFixed(1)) : 0;
-    const totalPips = uniqueClosedTrades.reduce((sum, t) => sum + calcPips(t), 0);
-
-    return {
-      totalTrades: uniqueAllTrades.length,
-      totalProfit,
-      totalPips: Number.isFinite(totalPips) ? Number(totalPips.toFixed(1)) : 0,
-      openTradesCount: dedupeTradesById(openTrades).length,
-      closedTradesCount: uniqueClosedTrades.length,
-      winRate,
-    };
+    return calculateMetrics({ openTrades, closedTrades });
   }, [closedTrades, openTrades, useDemo]);
 
-  const chartData = timeframe === "Daily" ? mockChartDataDaily 
-                  : timeframe === "Weekly" ? mockChartDataWeekly 
-                  : mockChartDataMonthly;
+  const chartData = useMemo(() => {
+    if (useDemo) {
+      return timeframe === "Daily" ? mockChartDataDaily : timeframe === "Weekly" ? mockChartDataWeekly : mockChartDataMonthly;
+    }
+
+    const real = buildEquityCurve(closedTrades, timeframe);
+    return real.length > 0 ? real : [];
+  }, [closedTrades, timeframe, useDemo]);
 
   const containerVariants: Variants = {
     hidden: { opacity: 0 },

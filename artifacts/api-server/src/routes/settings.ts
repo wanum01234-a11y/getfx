@@ -82,12 +82,15 @@ router.post("/clear-data", async (req, res) => {
   }
 
   try {
+    req.log.info("Clearing MT5 dashboard data");
     await client.db.transaction(async (tx) => {
       await tx.delete(client.mt5TradesTable).execute();
       await tx.delete(client.mt5AccountTable).execute();
     });
 
     clearMt5InMemoryStore();
+
+    req.log.info("Cleared MT5 dashboard data");
 
     res.json({ ok: true });
   } catch (err) {

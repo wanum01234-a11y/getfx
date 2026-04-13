@@ -65,6 +65,7 @@ export default function SettingsPage() {
     try {
       await clearAllData();
       await queryClient.invalidateQueries({ queryKey: ["mt5"] });
+      await queryClient.refetchQueries({ queryKey: ["mt5"] });
       toast({ title: "Cleared", description: "All dashboard data was cleared." });
     } catch {
       toast({
