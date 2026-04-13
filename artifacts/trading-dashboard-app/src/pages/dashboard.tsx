@@ -1,12 +1,44 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, type Variants } from "framer-motion";
 import { Layout } from "@/components/layout";
-import { mockDashboardStats, mockChartDataDaily, mockChartDataWeekly, mockChartDataMonthly } from "@/lib/mock-data";
+import { mockDashboardStats, mockChartDataDaily, mockChartDataWeekly, mockChartDataMonthly, type Trade } from "@/lib/mock-data";
+import { useDemoMode, useMt5Trades } from "@/lib/mt5";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { ArrowUpRight, ArrowDownRight, TrendingUp, Activity, Hash, Briefcase } from "lucide-react";
 
 export default function Dashboard() {
+  const useDemo = useDemoMode();
+  const openTradesQuery = useMt5Trades("open", !useDemo);
+  const closedTradesQuery = useMt5Trades("closed", !useDemo);
   const [timeframe, setTimeframe] = useState<"Daily" | "Weekly" | "Monthly">("Weekly");
+
+  const openTrades = useMemo<Trade[]>(() => {
+    if (useDemo) return [];
+    return Array.isArray(openTradesQuery.data) ? openTradesQuery.data : [];
+  }, [openTradesQuery.data, useDemo]);
+
+  const closedTrades = useMemo<Trade[]>(() => {
+    if (useDemo) return [];
+    return Array.isArray(closedTradesQuery.data) ? closedTradesQuery.data : [];
+  }, [closedTradesQuery.data, useDemo]);
+
+  const resolvedStats = useMemo(() => {
+    if (useDemo) return mockDashboardStats;
+
+    const allTrades = [...openTrades, ...closedTrades];
+    const totalProfit = allTrades.reduce((sum, t) => sum + (Number.isFinite(t.profit) ? t.profit : 0), 0);
+    const wins = closedTrades.filter((t) => (Number.isFinite(t.profit) ? t.profit : 0) > 0).length;
+    const winRate = closedTrades.length > 0 ? Number(((wins / closedTrades.length) * 100).toFixed(1)) : 0;
+
+    return {
+      totalTrades: allTrades.length,
+      totalProfit,
+      totalPips: 0,
+      openTradesCount: openTrades.length,
+      closedTradesCount: closedTrades.length,
+      winRate,
+    };
+  }, [closedTrades, openTrades, useDemo]);
 
   const chartData = timeframe === "Daily" ? mockChartDataDaily 
                   : timeframe === "Weekly" ? mockChartDataWeekly 
@@ -48,7 +80,7 @@ export default function Dashboard() {
         <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard 
             title="Total Profit" 
-            value={`$${mockDashboardStats.totalProfit.toLocaleString(undefined, {minimumFractionDigits: 2})}`} 
+            value={`$${resolvedStats.totalProfit.toLocaleString(undefined, {minimumFractionDigits: 2})}`} 
             icon={<TrendingUp className="w-5 h-5" />} 
             trend="+12.5%" 
             trendUp={true} 
@@ -56,13 +88,13 @@ export default function Dashboard() {
           />
           <StatCard 
             title="Total Trades" 
-            value={mockDashboardStats.totalTrades.toString()} 
+            value={resolvedStats.totalTrades.toString()} 
             icon={<Hash className="w-5 h-5" />} 
             highlight="muted"
           />
           <StatCard 
             title="Total Pips" 
-            value={mockDashboardStats.totalPips.toLocaleString()} 
+            value={resolvedStats.totalPips.toLocaleString()} 
             icon={<Activity className="w-5 h-5" />} 
             trend="+340 this week" 
             trendUp={true} 
@@ -70,7 +102,7 @@ export default function Dashboard() {
           />
           <StatCard 
             title="Win Rate" 
-            value={`${mockDashboardStats.winRate}%`} 
+            value={`${resolvedStats.winRate}%`} 
             icon={<Briefcase className="w-5 h-5" />} 
             highlight="muted"
           />
@@ -172,7 +204,7 @@ export default function Dashboard() {
                     <div className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(0,191,255,0.8)]"></div>
                     <span className="text-sm text-muted-foreground">Open Trades</span>
                   </div>
-                  <span className="text-lg font-medium text-white">{mockDashboardStats.openTradesCount}</span>
+                  <span className="text-lg font-medium text-white">{resolvedStats.openTradesCount}</span>
                 </div>
                 <div className="h-2 w-full bg-black/40 rounded-full overflow-hidden">
                   <div className="h-full bg-primary w-1/4 rounded-full"></div>
@@ -183,7 +215,7 @@ export default function Dashboard() {
                     <div className="w-2 h-2 rounded-full bg-muted-foreground"></div>
                     <span className="text-sm text-muted-foreground">Closed Trades</span>
                   </div>
-                  <span className="text-lg font-medium text-white">{mockDashboardStats.closedTradesCount}</span>
+                  <span className="text-lg font-medium text-white">{resolvedStats.closedTradesCount}</span>
                 </div>
                 <div className="h-2 w-full bg-black/40 rounded-full overflow-hidden">
                   <div className="h-full bg-muted-foreground w-3/4 rounded-full"></div>

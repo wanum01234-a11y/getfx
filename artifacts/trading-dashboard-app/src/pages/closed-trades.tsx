@@ -11,9 +11,8 @@ export default function ClosedTrades() {
   const mt5 = useMt5Trades("closed", !useDemo);
 
   const trades = useMemo<Trade[]>(() => {
-    const remote = mt5.data;
-    if (!useDemo && Array.isArray(remote) && remote.length > 0) return remote;
-    return mockClosedTrades;
+    if (useDemo) return mockClosedTrades;
+    return Array.isArray(mt5.data) ? mt5.data : [];
   }, [mt5.data, useDemo]);
 
   return (

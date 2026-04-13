@@ -2,6 +2,16 @@ import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import { Copy, Link as LinkIcon, Webhook } from "lucide-react";
@@ -25,6 +35,8 @@ export default function SettingsPage() {
   const [includeKey, setIncludeKey] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearStep, setClearStep] = useState<1 | 2>(1);
 
   const resolvedWebhookUrl = useMemo(() => {
     if (webhookUrl && includeKey) return webhookUrl;
@@ -174,10 +186,64 @@ export default function SettingsPage() {
                 <div className="text-sm font-semibold text-white">Clear All Data</div>
                 <div className="text-xs text-muted-foreground mt-1">Deletes trades and account snapshots from the server (keeps settings).</div>
               </div>
-              <Button variant="destructive" onClick={onClearAllData} disabled={isClearing}>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setClearStep(1);
+                  setClearDialogOpen(true);
+                }}
+                disabled={isClearing}
+              >
                 {isClearing ? "Clearing..." : "Clear All Data"}
               </Button>
             </div>
+
+            <AlertDialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {clearStep === 1 ? "Confirm" : "Final confirmation"}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {clearStep === 1
+                      ? "Do you want to clear all MT5 trades and account data from the database?"
+                      : "This will permanently delete ALL MT5 trades (open + closed) and account snapshots. This action cannot be undone."}
+                  </AlertDialogDescription>
+                  {clearStep === 2 ? (
+                    <div className="text-sm font-semibold text-red-400">
+                      Warning: your data will be cleared now.
+                    </div>
+                  ) : null}
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel
+                    onClick={() => {
+                      setClearDialogOpen(false);
+                      setClearStep(1);
+                    }}
+                  >
+                    Cancel
+                  </AlertDialogCancel>
+
+                  {clearStep === 1 ? (
+                    <AlertDialogAction onClick={() => setClearStep(2)}>
+                      Continue
+                    </AlertDialogAction>
+                  ) : (
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={async () => {
+                        setClearDialogOpen(false);
+                        setClearStep(1);
+                        await onClearAllData();
+                      }}
+                    >
+                      Yes, clear now
+                    </AlertDialogAction>
+                  )}
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-3">
               <div className="text-sm font-semibold text-white">How to use webhook</div>

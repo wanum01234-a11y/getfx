@@ -11,9 +11,8 @@ export default function OpenTrades() {
   const mt5 = useMt5Trades("open", !useDemo);
 
   const trades = useMemo<Trade[]>(() => {
-    const remote = mt5.data;
-    if (!useDemo && Array.isArray(remote) && remote.length > 0) return remote;
-    return mockOpenTrades;
+    if (useDemo) return mockOpenTrades;
+    return Array.isArray(mt5.data) ? mt5.data : [];
   }, [mt5.data, useDemo]);
 
   return (
