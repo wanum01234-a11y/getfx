@@ -1,4 +1,7 @@
 import { Router, type IRouter } from "express";
+import fs from "node:fs";
+import path from "node:path";
+import { logger } from "../lib/logger";
 
 type Mt5TradePayload = {
   ticket: string | number;
@@ -65,11 +68,77 @@ const generateSecret = () => {
   return `mt5_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 };
 
-const getMt5Secret = () => {
-  return process.env.MT5_WEBHOOK_SECRET || process.env.MT5_SECRET || process.env.WEBHOOK_SECRET || generateSecret();
+const readEnvFileIntoProcessEnv = () => {
+  const candidates = [
+    path.resolve(process.cwd(), ".env"),
+    path.resolve(process.cwd(), "..", "..", ".env"),
+  ];
+
+  for (const filePath of candidates) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const content = fs.readFileSync(filePath, "utf8");
+      const lines = content.split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const idx = trimmed.indexOf("=");
+        if (idx <= 0) continue;
+        const key = trimmed.slice(0, idx).trim();
+        const value = trimmed.slice(idx + 1).trim();
+        if (!key) continue;
+        if (process.env[key] !== undefined) continue;
+        process.env[key] = value;
+      }
+      break;
+    } catch {
+      // ignore
+    }
+  }
 };
 
-const MT5_SECRET = getMt5Secret();
+type Mt5SecretInfo = {
+  value: string;
+  hasSecretFromEnv: boolean;
+};
+
+const getOrCreateMt5Secret = (): Mt5SecretInfo => {
+  readEnvFileIntoProcessEnv();
+
+  const fromEnv = (process.env.MT5_WEBHOOK_SECRET ?? "").trim();
+  if (fromEnv && fromEnv.toUpperCase() !== "CHANGE_ME") {
+    return { value: fromEnv, hasSecretFromEnv: true };
+  }
+
+  const secretFile = path.resolve(process.cwd(), ".mt5_webhook_secret");
+  try {
+    if (fs.existsSync(secretFile)) {
+      const existing = fs.readFileSync(secretFile, "utf8").trim();
+      if (existing) return { value: existing, hasSecretFromEnv: false };
+    }
+  } catch {
+    // ignore
+  }
+
+  const generated = generateSecret();
+  try {
+    fs.writeFileSync(secretFile, `${generated}\n`, { encoding: "utf8" });
+  } catch {
+    // ignore
+  }
+
+  logger.warn(
+    {
+      secretFile,
+    },
+    "MT5_WEBHOOK_SECRET is not set; generated a local secret file for persistence. Set MT5_WEBHOOK_SECRET in environment for a stable configured secret.",
+  );
+
+  return { value: generated, hasSecretFromEnv: false };
+};
+
+const MT5_SECRET_INFO = getOrCreateMt5Secret();
+const MT5_SECRET = MT5_SECRET_INFO.value;
 
 const allowNoKey = () => {
   return String(process.env.MT5_WEBHOOK_ALLOW_NO_KEY ?? "").toLowerCase() === "true";
@@ -359,16 +428,25 @@ router.get("/settings/mt5", (req, res) => {
     webhookUrlWithKey: withKeyUrl,
     webhookUrlNoKey: noKeyUrl,
     requireKey: !allowNoKey(),
-    hasSecretFromEnv: Boolean(process.env.MT5_WEBHOOK_SECRET || process.env.MT5_SECRET || process.env.WEBHOOK_SECRET),
+    hasSecretFromEnv: MT5_SECRET_INFO.hasSecretFromEnv,
   });
 });
 
 router.post("/webhook/mt5", async (req, res) => {
   const key = String(req.query.key ?? "");
   const requireKey = !allowNoKey();
-  if (requireKey && (!key || key !== MT5_SECRET)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
+  if (requireKey) {
+    if (!key) {
+      req.log.warn({ query: req.query }, "MT5 webhook missing key");
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    if (key !== MT5_SECRET) {
+      req.log.warn({ query: req.query }, "MT5 webhook invalid key");
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    req.log.info("MT5 webhook key validated");
   }
 
   const rawBody: unknown = req.body;
