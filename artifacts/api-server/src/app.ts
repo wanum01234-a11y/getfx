@@ -36,6 +36,18 @@ app.use(
   }),
 );
 app.use(cors());
+
+// MT5 EA can send JSON with trailing null bytes (\u0000). Using express.json() will throw
+// before our route can handle it. For this specific endpoint we capture the raw text body
+// and parse it manually in the route.
+app.use(
+  "/api/webhook/mt5",
+  express.text({
+    type: ["application/json", "text/plain", "*/*"],
+    limit: "1mb",
+  }),
+);
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {

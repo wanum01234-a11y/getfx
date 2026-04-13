@@ -77,6 +77,12 @@ const allowNoKey = () => {
 
 const hasDatabase = () => Boolean(process.env.DATABASE_URL);
 
+const sanitizePossibleJsonText = (value: string) => {
+  // MT5 WebRequest often appends a null terminator (\u0000) to the payload.
+  // Remove null bytes and trim whitespace so JSON.parse can succeed.
+  return value.replace(/\u0000/g, "").trim();
+};
+
 const parseIncomingWebhookBody = (rawBody: unknown): { ok: true; body: Mt5WebhookPayload } | { ok: false; error: string } => {
   if (rawBody && typeof rawBody === "object") {
     return { ok: true, body: rawBody as Mt5WebhookPayload };
@@ -84,7 +90,8 @@ const parseIncomingWebhookBody = (rawBody: unknown): { ok: true; body: Mt5Webhoo
 
   if (typeof rawBody === "string") {
     try {
-      const parsed = JSON.parse(rawBody) as unknown;
+      const text = sanitizePossibleJsonText(rawBody);
+      const parsed = JSON.parse(text) as unknown;
       if (!parsed || typeof parsed !== "object") return { ok: false, error: "Invalid JSON body" };
       return { ok: true, body: parsed as Mt5WebhookPayload };
     } catch {
@@ -370,7 +377,7 @@ router.post("/webhook/mt5", async (req, res) => {
       contentType: req.get("content-type"),
       query: req.query,
       bodyType: rawBody === null ? "null" : typeof rawBody,
-      body: rawBody,
+      body: typeof rawBody === "string" ? sanitizePossibleJsonText(rawBody) : rawBody,
     },
     "MT5 webhook received",
   );
