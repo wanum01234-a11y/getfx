@@ -105,11 +105,17 @@ const calculateExpected = (trade: UiTrade) => {
 
 export const buildWhatsAppMessage = (trade: UiTrade, template: string) => {
   const expected = calculateExpected(trade);
+  const sl = trade.stopLoss;
+  const tp = expected.tp1;
   const values: Record<string, string> = {
     "{symbol}": trade.symbol,
     "{type}": trade.type,
+    "{order_type}": trade.orderType || "-",
     "{lot}": trade.lot.toFixed(2),
     "{entry}": formatPrice(trade.entryPrice),
+    "{pending_entry}": formatPrice(trade.entryPrice),
+    "{sl}": formatPrice(sl),
+    "{tp}": formatPrice(tp),
     "{current}": formatPrice(trade.currentPrice),
     "{close}": formatPrice(trade.closePrice),
     "{profit}": `${trade.profit >= 0 ? "+" : ""}$${trade.profit.toFixed(2)}`,

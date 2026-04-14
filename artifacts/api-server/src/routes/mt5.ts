@@ -7,8 +7,12 @@ type Mt5TradePayload = {
   trade_id?: string | number;
   tradeId?: string | number;
   ticket?: string | number;
+  order_id?: string | number;
+  orderId?: string | number;
   symbol?: string;
   type?: string;
+  order_type?: string;
+  orderType?: string;
   lot?: number;
   volume?: number;
   entryPrice?: number;
@@ -45,8 +49,10 @@ type Mt5ValidationIssue = {
 
 export type UiTrade = {
   id: string;
+  orderId?: string;
   symbol: string;
   type: "Buy" | "Sell";
+  orderType?: string;
   lot: number;
   entryPrice: number;
   currentPrice?: number;
@@ -57,7 +63,7 @@ export type UiTrade = {
   tp1?: number;
   tp2?: number;
   tp3?: number;
-  status: "Open" | "Closed";
+  status: "Pending" | "Open" | "Closed";
   duration?: string;
   openedAt: string;
   closedAt?: string;
@@ -245,8 +251,11 @@ const validateMt5WebhookPayload = (body: Mt5WebhookPayload): Mt5ValidationIssue[
 
 type DbTradeRow = {
   id: string;
+  ticket?: string | null;
+  orderId?: string | null;
   symbol: string;
   type: string;
+  orderType?: string | null;
   lot: unknown;
   entryPrice: unknown;
   currentPrice: unknown;
@@ -255,6 +264,7 @@ type DbTradeRow = {
   status: string;
   openedAt: Date;
   closedAt: Date | null;
+  raw?: unknown;
 };
 
 type DbAccountRow = {
@@ -290,11 +300,15 @@ type StoredWhatsAppAutomation = {
   enabled: boolean;
   sendOpenAlerts: boolean;
   sendClosedAlerts: boolean;
+  sendPendingAlerts?: boolean;
+  sendActivatedAlerts?: boolean;
   twilioAccountSid?: string;
   twilioAuthToken?: string;
   twilioFromNumber?: string;
   userToNumber?: string;
   template?: string;
+  pendingTemplate?: string;
+  activatedTemplate?: string;
 };
 
 const parseStoredSettings = (value: unknown): StoredWhatsAppAutomation | null => {
@@ -323,6 +337,15 @@ const normalizeTradeType = (value: unknown): "Buy" | "Sell" => {
 const normalizeStatus = (value: unknown): "Open" | "Closed" => {
   const raw = String(value ?? "").toLowerCase();
   if (raw === "closed" || raw === "close" || raw === "1") return "Closed";
+  return "Open";
+};
+
+const normalizeLifecycleStatus = (value: unknown): "Pending" | "Open" | "Closed" | "Cancelled" => {
+  const raw = String(value ?? "").toLowerCase().trim();
+  if (!raw) return "Open";
+  if (raw === "closed" || raw === "close" || raw === "1") return "Closed";
+  if (raw.includes("pending") || raw.includes("placed") || raw.includes("order")) return "Pending";
+  if (raw.includes("cancel")) return "Cancelled";
   return "Open";
 };
 
@@ -357,18 +380,43 @@ const sanitizeSymbol = (value: unknown) => {
 };
 
 const mapMt5TradeToUiTrade = (payload: Mt5TradePayload): UiTrade | null => {
-  const id = coalesceString(payload.trade_id, payload.tradeId, payload.ticket);
+  const id = coalesceString(payload.trade_id, payload.tradeId, payload.ticket, payload.order_id, payload.orderId);
   if (!id) return null;
 
-  const status = normalizeStatus(payload.status);
+  const lifecycleStatus = normalizeLifecycleStatus(payload.status);
+  if (lifecycleStatus === "Cancelled") {
+    return {
+      id: String(id),
+      orderId: coalesceString(payload.order_id, payload.orderId, payload.ticket),
+      symbol: sanitizeSymbol(payload.symbol),
+      type: normalizeTradeType(payload.type),
+      orderType: coalesceString(payload.order_type, payload.orderType),
+      lot: coalesceNumber(payload.lot, payload.volume) ?? 0,
+      entryPrice: coalesceNumber(payload.entryPrice, payload.openPrice) ?? 0,
+      currentPrice: coalesceNumber(payload.currentPrice),
+      closePrice: coalesceNumber(payload.closePrice),
+      profit: coalesceNumber(payload.profit) ?? 0,
+      stopLoss: coalesceNumber(payload.stopLoss, payload.sl),
+      takeProfit: coalesceNumber(payload.takeProfit, payload.tp),
+      tp1: coalesceNumber(payload.tp1),
+      tp2: coalesceNumber(payload.tp2),
+      tp3: coalesceNumber(payload.tp3),
+      status: "Pending",
+      openedAt: coalesceString(payload.openedAt) || new Date().toISOString(),
+    };
+  }
+
+  const status: "Pending" | "Open" | "Closed" = lifecycleStatus;
   const openedAt = coalesceString(payload.openedAt) || new Date().toISOString();
 
   const entryPrice = coalesceNumber(payload.entryPrice, payload.openPrice) ?? 0;
 
   const uiTrade: UiTrade = {
     id: String(id),
+    orderId: coalesceString(payload.order_id, payload.orderId, payload.ticket),
     symbol: sanitizeSymbol(payload.symbol),
     type: normalizeTradeType(payload.type),
+    orderType: coalesceString(payload.order_type, payload.orderType),
     lot: coalesceNumber(payload.lot, payload.volume) ?? 0,
     entryPrice,
     currentPrice: coalesceNumber(payload.currentPrice),
@@ -387,6 +435,11 @@ const mapMt5TradeToUiTrade = (payload: Mt5TradePayload): UiTrade | null => {
   return uiTrade;
 };
 
+const getOrderIdFromPayload = (payload: Mt5TradePayload): string | undefined => {
+  const o = coalesceString(payload.order_id, payload.orderId, payload.ticket);
+  return o ? String(o) : undefined;
+};
+
 const getTicketFromPayload = (payload: Mt5TradePayload): string | undefined => {
   const t = coalesceString(payload.ticket);
   return t ? String(t) : undefined;
@@ -398,6 +451,7 @@ const mergeUiTrade = (existing: UiTrade | undefined, next: UiTrade): UiTrade => 
   return {
     ...existing,
     ...next,
+    orderId: next.orderId ?? existing.orderId,
     currentPrice: next.currentPrice ?? existing.currentPrice,
     closePrice: next.closePrice ?? existing.closePrice,
     closedAt: next.closedAt ?? existing.closedAt,
@@ -405,6 +459,10 @@ const mergeUiTrade = (existing: UiTrade | undefined, next: UiTrade): UiTrade => 
 };
 
 const getTrades = (status: "Open" | "Closed") => {
+  return Array.from(store.tradesById.values()).filter((t) => t.status === status);
+};
+
+const getLifecycleTrades = (status: "Pending" | "Open" | "Closed") => {
   return Array.from(store.tradesById.values()).filter((t) => t.status === status);
 };
 
@@ -433,8 +491,10 @@ const rowToUiTrade = (row: DbTradeRow): UiTrade => {
   const raw = (row.raw || {}) as Partial<Mt5TradePayload>;
   return {
     id: row.id,
+    orderId: row.orderId ?? coalesceString((raw as Mt5TradePayload).order_id, (raw as Mt5TradePayload).orderId),
     symbol: row.symbol,
     type: row.type === "Buy" ? "Buy" : "Sell",
+    orderType: row.orderType ?? coalesceString((raw as Mt5TradePayload).order_type, (raw as Mt5TradePayload).orderType),
     lot: fromDbNumeric(row.lot) ?? 0,
     entryPrice: fromDbNumeric(row.entryPrice) ?? 0,
     currentPrice: fromDbNumeric(row.currentPrice),
@@ -445,7 +505,7 @@ const rowToUiTrade = (row: DbTradeRow): UiTrade => {
     tp1: coalesceNumber((raw as Mt5TradePayload).tp1),
     tp2: coalesceNumber((raw as Mt5TradePayload).tp2),
     tp3: coalesceNumber((raw as Mt5TradePayload).tp3),
-    status: row.status === "Closed" ? "Closed" : "Open",
+    status: row.status === "Closed" ? "Closed" : row.status === "Pending" ? "Pending" : "Open",
     openedAt: row.openedAt.toISOString(),
     closedAt: row.closedAt ? row.closedAt.toISOString() : undefined,
   };
@@ -528,19 +588,27 @@ router.post("/webhook/mt5", async (req, res) => {
     const trades = [...tradeList, ...closedTradeList, ...singleTrade];
 
     const mappedTrades: Array<{ trade: UiTrade; raw: Mt5TradePayload; previous?: UiTrade }> = [];
-    const events: Array<{ kind: "open" | "closed"; trade: UiTrade }> = [];
+    const cancelledOrders: Array<{ trade: UiTrade; raw: Mt5TradePayload; previous?: UiTrade }> = [];
+    const events: Array<{ kind: "pending" | "activated" | "open" | "closed"; trade: UiTrade }> = [];
     for (const t of trades) {
       const mapped = mapMt5TradeToUiTrade(t);
       if (mapped) {
         const existing = store.tradesById.get(mapped.id);
+        const lifecycle = normalizeLifecycleStatus((t as Mt5TradePayload).status);
+        if (lifecycle === "Cancelled") {
+          cancelledOrders.push({ trade: mapped, raw: t, previous: existing });
+          if (existing) store.tradesById.delete(existing.id);
+          continue;
+        }
+
         const merged = mergeUiTrade(existing, mapped);
-        store.tradesById.set(mapped.id, merged);
+        store.tradesById.set(merged.id, merged);
         mappedTrades.push({ trade: merged, raw: t, previous: existing });
 
+        if (!existing && merged.status === "Pending") events.push({ kind: "pending", trade: merged });
+        if (existing && existing.status === "Pending" && merged.status === "Open") events.push({ kind: "activated", trade: merged });
         if (!existing && merged.status === "Open") events.push({ kind: "open", trade: merged });
-        if (existing && existing.status === "Open" && merged.status === "Closed") {
-          events.push({ kind: "closed", trade: merged });
-        }
+        if (existing && existing.status === "Open" && merged.status === "Closed") events.push({ kind: "closed", trade: merged });
       }
     }
 
@@ -567,45 +635,60 @@ router.post("/webhook/mt5", async (req, res) => {
 
         const openTickets: string[] = [];
         const openIds: string[] = [];
+        const openOrderIds: string[] = [];
         for (const { trade, raw } of mappedTrades) {
           if (trade.status !== "Open") continue;
           const ticket = getTicketFromPayload(raw);
+          const orderId = getOrderIdFromPayload(raw);
+          if (orderId) openOrderIds.push(String(orderId));
           if (ticket) openTickets.push(String(ticket));
           else openIds.push(trade.id);
         }
 
         const existingTickets = new Set<string>();
         const existingIds = new Set<string>();
-        if (openTickets.length > 0 || openIds.length > 0) {
+        const existingOrderIds = new Set<string>();
+        if (openTickets.length > 0 || openIds.length > 0 || openOrderIds.length > 0) {
           const conds: unknown[] = [];
           if (openTickets.length > 0) conds.push(inArray(mt5TradesTable.ticket, openTickets as never));
           if (openIds.length > 0) conds.push(inArray(mt5TradesTable.id, openIds as never));
+          if (openOrderIds.length > 0) conds.push(inArray(mt5TradesTable.orderId, openOrderIds as never));
 
           const whereClause = conds.length === 1 ? (conds[0] as never) : (or(...(conds as never[])) as never);
           const existingRows = await db
-            .select({ ticket: mt5TradesTable.ticket, id: mt5TradesTable.id })
+            .select({ ticket: mt5TradesTable.ticket, id: mt5TradesTable.id, orderId: mt5TradesTable.orderId })
             .from(mt5TradesTable)
             .where(whereClause);
 
-          for (const r of existingRows as Array<{ ticket: unknown; id: unknown }>) {
+          for (const r of existingRows as Array<{ ticket: unknown; id: unknown; orderId: unknown }>) {
             const t = r.ticket === null || r.ticket === undefined ? "" : String(r.ticket);
             const i = r.id === null || r.id === undefined ? "" : String(r.id);
+            const o = r.orderId === null || r.orderId === undefined ? "" : String(r.orderId);
             if (t) existingTickets.add(t);
             if (i) existingIds.add(i);
+            if (o) existingOrderIds.add(o);
           }
         }
 
         for (const { trade, raw } of mappedTrades) {
           const ticket = getTicketFromPayload(raw);
+          const orderId = getOrderIdFromPayload(raw);
           const normalizedTicket = ticket ? String(ticket) : undefined;
+          const normalizedOrderId = orderId ? String(orderId) : undefined;
           const isNewOpenEvent =
             trade.status === "Open" &&
-            (normalizedTicket ? !existingTickets.has(normalizedTicket) : !existingIds.has(trade.id));
+            (normalizedOrderId
+              ? !existingOrderIds.has(normalizedOrderId)
+              : normalizedTicket
+                ? !existingTickets.has(normalizedTicket)
+                : !existingIds.has(trade.id));
 
           const tradeSet: Record<string, unknown> = {
             ticket: ticket ?? null,
+            orderId: normalizedOrderId ?? (ticket ? String(ticket) : null),
             symbol: trade.symbol,
             type: trade.type,
+            orderType: trade.orderType ?? null,
             lot: toDbNumeric(trade.lot) ?? "0",
             entryPrice: toDbNumeric(trade.entryPrice) ?? "0",
             profit: toDbNumeric(trade.profit) ?? "0",
@@ -623,8 +706,10 @@ router.post("/webhook/mt5", async (req, res) => {
           const insertValues: Record<string, unknown> = {
             id: trade.id,
             ticket: ticket ?? null,
+            orderId: normalizedOrderId ?? (ticket ? String(ticket) : null),
             symbol: trade.symbol,
             type: trade.type,
+            orderType: trade.orderType ?? null,
             lot: toDbNumeric(trade.lot) ?? "0",
             entryPrice: toDbNumeric(trade.entryPrice) ?? "0",
             currentPrice: toDbNumeric(trade.currentPrice) ?? null,
@@ -636,7 +721,15 @@ router.post("/webhook/mt5", async (req, res) => {
             raw,
           };
 
-          if (ticket) {
+          if (normalizedOrderId) {
+            await db
+              .insert(mt5TradesTable)
+              .values(insertValues as never)
+              .onConflictDoUpdate({
+                target: mt5TradesTable.orderId,
+                set: tradeSet as never,
+              });
+          } else if (ticket) {
             // Ticket-based upsert prevents duplicates when open/close use different ids.
             await db
               .insert(mt5TradesTable)
@@ -658,9 +751,17 @@ router.post("/webhook/mt5", async (req, res) => {
 
           if (isNewOpenEvent) {
             tradeOpenIncrements.push({ ticket: normalizedTicket, id: trade.id });
-            if (normalizedTicket) existingTickets.add(normalizedTicket);
+            if (normalizedOrderId) existingOrderIds.add(normalizedOrderId);
+            else if (normalizedTicket) existingTickets.add(normalizedTicket);
             else existingIds.add(trade.id);
           }
+        }
+
+        // Cancelled pending orders: delete the record if we can reliably identify it.
+        for (const { raw } of cancelledOrders) {
+          const orderId = getOrderIdFromPayload(raw);
+          if (!orderId) continue;
+          await db.delete(mt5TradesTable).where(eq(mt5TradesTable.orderId, String(orderId)));
         }
 
         if (tradeOpenIncrements.length > 0) {
@@ -725,10 +826,17 @@ router.post("/webhook/mt5", async (req, res) => {
               );
 
               for (const event of events) {
+                if (event.kind === "pending" && settings.sendPendingAlerts === false) continue;
+                if (event.kind === "activated" && settings.sendActivatedAlerts === false) continue;
                 if (event.kind === "open" && !settings.sendOpenAlerts) continue;
                 if (event.kind === "closed" && !settings.sendClosedAlerts) continue;
 
-                const template = settings.template || DEFAULT_WHATSAPP_TEMPLATE;
+                const template =
+                  event.kind === "pending"
+                    ? settings.pendingTemplate || settings.template || DEFAULT_WHATSAPP_TEMPLATE
+                    : event.kind === "activated"
+                      ? settings.activatedTemplate || settings.template || DEFAULT_WHATSAPP_TEMPLATE
+                      : settings.template || DEFAULT_WHATSAPP_TEMPLATE;
                 const message = buildWhatsAppMessage(event.trade, template);
                 await sendWhatsAppMessage(settings, message);
               }
@@ -801,6 +909,31 @@ router.get("/mt5/trades/closed", async (_req, res) => {
   }
 
   res.json({ trades: getTrades("Closed") });
+});
+
+router.get("/trades", async (req, res) => {
+  const statusRaw = String(req.query.status ?? "").toLowerCase().trim();
+  const status = statusRaw === "pending" ? "Pending" : statusRaw === "open" ? "Open" : statusRaw === "closed" ? "Closed" : undefined;
+  if (!status) {
+    res.status(400).json({ error: "ValidationError", message: "status must be pending|open|closed" });
+    return;
+  }
+
+  if (hasDatabase()) {
+    try {
+      const client = await getDbClient();
+      if (!client) throw new Error("DB unavailable");
+      const { db, mt5TradesTable, eq } = client;
+      const rows = await db.select().from(mt5TradesTable).where(eq(mt5TradesTable.status, status));
+      res.json({ trades: (rows as DbTradeRow[]).map(rowToUiTrade) });
+      return;
+    } catch {
+      res.json({ trades: getLifecycleTrades(status) });
+      return;
+    }
+  }
+
+  res.json({ trades: getLifecycleTrades(status) });
 });
 
 router.get("/mt5/account", async (_req, res) => {

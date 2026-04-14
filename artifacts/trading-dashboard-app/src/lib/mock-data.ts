@@ -1,7 +1,9 @@
 export interface Trade {
   id: string;
+  orderId?: string;
   symbol: string;
   type: "Buy" | "Sell";
+  orderType?: string;
   lot: number;
   entryPrice: number;
   currentPrice?: number;
@@ -12,7 +14,7 @@ export interface Trade {
   tp1?: number;
   tp2?: number;
   tp3?: number;
-  status: "Open" | "Closed";
+  status: "Pending" | "Open" | "Closed";
   duration?: string;
   openedAt: string;
   closedAt?: string;

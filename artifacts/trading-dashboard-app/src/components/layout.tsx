@@ -41,6 +41,7 @@ export function Layout({ children }: LayoutProps) {
   const navigation = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
     { name: "Open Trades", href: "/open-trades", icon: Activity },
+    { name: "Pending Orders", href: "/pending-orders", icon: Activity },
     { name: "Closed Trades", href: "/closed-trades", icon: History },
     { name: "Trading Tools", href: "/trading-tools", icon: Calculator },
     { name: "WhatsApp Template", href: "/whatsapp-template", icon: MessageCircle },

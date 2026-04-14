@@ -4,11 +4,15 @@ type StoredWhatsAppAutomation = {
   enabled: boolean;
   sendOpenAlerts: boolean;
   sendClosedAlerts: boolean;
+  sendPendingAlerts?: boolean;
+  sendActivatedAlerts?: boolean;
   twilioAccountSid?: string;
   twilioAuthToken?: string;
   twilioFromNumber?: string;
   userToNumber?: string;
   template?: string;
+  pendingTemplate?: string;
+  activatedTemplate?: string;
 };
 
 const SETTINGS_KEY = "whatsapp-automation";
@@ -72,11 +76,15 @@ router.get("/settings/whatsapp-automation", async (_req, res) => {
     enabled: Boolean(stored.enabled),
     sendOpenAlerts: Boolean(stored.sendOpenAlerts),
     sendClosedAlerts: Boolean(stored.sendClosedAlerts),
+    sendPendingAlerts: stored.sendPendingAlerts === undefined ? true : Boolean(stored.sendPendingAlerts),
+    sendActivatedAlerts: stored.sendActivatedAlerts === undefined ? true : Boolean(stored.sendActivatedAlerts),
     twilioAccountSid: stored.twilioAccountSid || "",
     twilioFromNumber: stored.twilioFromNumber || "",
     userToNumber: stored.userToNumber || "",
     hasAuthToken: Boolean(stored.twilioAuthToken),
     template: stored.template || "",
+    pendingTemplate: stored.pendingTemplate || "",
+    activatedTemplate: stored.activatedTemplate || "",
   });
 });
 
@@ -95,11 +103,15 @@ router.post("/settings/whatsapp-automation", async (req, res) => {
     enabled: Boolean(body.enabled),
     sendOpenAlerts: Boolean(body.sendOpenAlerts),
     sendClosedAlerts: Boolean(body.sendClosedAlerts),
+    sendPendingAlerts: body.sendPendingAlerts === undefined ? true : Boolean(body.sendPendingAlerts),
+    sendActivatedAlerts: body.sendActivatedAlerts === undefined ? true : Boolean(body.sendActivatedAlerts),
     twilioAccountSid: sanitizeNumbers(body.twilioAccountSid),
     twilioAuthToken: sanitizeNumbers(body.twilioAuthToken),
     twilioFromNumber: sanitizeNumbers(body.twilioFromNumber),
     userToNumber: sanitizeNumbers(body.userToNumber),
     template: typeof body.template === "string" ? body.template : undefined,
+    pendingTemplate: typeof body.pendingTemplate === "string" ? body.pendingTemplate : undefined,
+    activatedTemplate: typeof body.activatedTemplate === "string" ? body.activatedTemplate : undefined,
   };
 
   await db

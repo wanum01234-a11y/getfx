@@ -13,11 +13,15 @@ type AutomationSettings = {
   enabled: boolean;
   sendOpenAlerts: boolean;
   sendClosedAlerts: boolean;
+  sendPendingAlerts?: boolean;
+  sendActivatedAlerts?: boolean;
   twilioAccountSid: string;
   twilioFromNumber: string;
   userToNumber: string;
   hasAuthToken: boolean;
   template: string;
+  pendingTemplate?: string;
+  activatedTemplate?: string;
 };
 
 export default function WhatsAppAutomationPage() {
@@ -27,6 +31,8 @@ export default function WhatsAppAutomationPage() {
   const [enabled, setEnabled] = useState(false);
   const [sendOpenAlerts, setSendOpenAlerts] = useState(true);
   const [sendClosedAlerts, setSendClosedAlerts] = useState(true);
+  const [sendPendingAlerts, setSendPendingAlerts] = useState(true);
+  const [sendActivatedAlerts, setSendActivatedAlerts] = useState(true);
 
   const [twilioAccountSid, setTwilioAccountSid] = useState("");
   const [twilioAuthToken, setTwilioAuthToken] = useState("");
@@ -34,15 +40,47 @@ export default function WhatsAppAutomationPage() {
   const [userToNumber, setUserToNumber] = useState("whatsapp:+");
 
   const [template, setTemplate] = useState(DEFAULT_WHATSAPP_TEMPLATE);
+  const [pendingTemplate, setPendingTemplate] = useState("🚧 Pending Order\nSymbol: {symbol}\nType: {type}\nOrder: {order_type}\nEntry: {pending_entry}\nSL: {sl}\nTP: {tp}\nStatus: {status}");
+  const [activatedTemplate, setActivatedTemplate] = useState("✅ Trade Activated\nSymbol: {symbol}\nType: {type}\nOrder: {order_type}\nEntry: {entry}\nStatus: {status}");
 
   const templatePreview = useMemo(() => {
     return template
       .replaceAll("{symbol}", "EURUSD")
       .replaceAll("{type}", "Buy")
+      .replaceAll("{order_type}", "BUY LIMIT")
       .replaceAll("{entry}", "1.08000")
+      .replaceAll("{pending_entry}", "1.08000")
+      .replaceAll("{sl}", "1.07500")
+      .replaceAll("{tp}", "1.09000")
       .replaceAll("{profit}", "+$12.50")
       .replaceAll("{status}", "Open");
   }, [template]);
+
+  const pendingPreview = useMemo(() => {
+    return pendingTemplate
+      .replaceAll("{symbol}", "EURUSD")
+      .replaceAll("{type}", "Buy")
+      .replaceAll("{order_type}", "BUY LIMIT")
+      .replaceAll("{entry}", "1.08000")
+      .replaceAll("{pending_entry}", "1.08000")
+      .replaceAll("{sl}", "1.07500")
+      .replaceAll("{tp}", "1.09000")
+      .replaceAll("{profit}", "+$0.00")
+      .replaceAll("{status}", "Pending");
+  }, [pendingTemplate]);
+
+  const activatedPreview = useMemo(() => {
+    return activatedTemplate
+      .replaceAll("{symbol}", "EURUSD")
+      .replaceAll("{type}", "Buy")
+      .replaceAll("{order_type}", "BUY LIMIT")
+      .replaceAll("{entry}", "1.08000")
+      .replaceAll("{pending_entry}", "1.08000")
+      .replaceAll("{sl}", "1.07500")
+      .replaceAll("{tp}", "1.09000")
+      .replaceAll("{profit}", "+$0.00")
+      .replaceAll("{status}", "Open");
+  }, [activatedTemplate]);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -54,10 +92,14 @@ export default function WhatsAppAutomationPage() {
       setEnabled(json.enabled);
       setSendOpenAlerts(json.sendOpenAlerts);
       setSendClosedAlerts(json.sendClosedAlerts);
+      setSendPendingAlerts(json.sendPendingAlerts === undefined ? true : Boolean(json.sendPendingAlerts));
+      setSendActivatedAlerts(json.sendActivatedAlerts === undefined ? true : Boolean(json.sendActivatedAlerts));
       setTwilioAccountSid(json.twilioAccountSid || "");
       setTwilioFromNumber(json.twilioFromNumber || "whatsapp:+14155238886");
       setUserToNumber(json.userToNumber || "whatsapp:+");
       setTemplate(json.template || DEFAULT_WHATSAPP_TEMPLATE);
+      setPendingTemplate(json.pendingTemplate || pendingTemplate);
+      setActivatedTemplate(json.activatedTemplate || activatedTemplate);
 
       setTwilioAuthToken("");
 
@@ -85,11 +127,15 @@ export default function WhatsAppAutomationPage() {
           enabled,
           sendOpenAlerts,
           sendClosedAlerts,
+          sendPendingAlerts,
+          sendActivatedAlerts,
           twilioAccountSid,
           twilioAuthToken: twilioAuthToken || undefined,
           twilioFromNumber,
           userToNumber,
           template,
+          pendingTemplate,
+          activatedTemplate,
         }),
       });
 
@@ -176,6 +222,22 @@ export default function WhatsAppAutomationPage() {
                 </div>
                 <Switch checked={sendClosedAlerts} onCheckedChange={setSendClosedAlerts} />
               </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <div>
+                  <div className="text-sm font-semibold text-white">Send Pending Order Alerts</div>
+                  <div className="text-xs text-muted-foreground mt-1">Send message when a pending order is created.</div>
+                </div>
+                <Switch checked={sendPendingAlerts} onCheckedChange={setSendPendingAlerts} />
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <div>
+                  <div className="text-sm font-semibold text-white">Send Activation Alerts</div>
+                  <div className="text-xs text-muted-foreground mt-1">Send message when pending order activates (pending → open).</div>
+                </div>
+                <Switch checked={sendActivatedAlerts} onCheckedChange={setSendActivatedAlerts} />
+              </div>
             </div>
           </div>
         </div>
@@ -237,6 +299,34 @@ export default function WhatsAppAutomationPage() {
             <div className="rounded-2xl border border-white/10 bg-black/40 p-5">
               <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Preview</div>
               <pre className="text-sm text-white whitespace-pre-wrap">{templatePreview}</pre>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-white">Pending Order Template</Label>
+              <Textarea
+                value={pendingTemplate}
+                onChange={(e) => setPendingTemplate(e.target.value)}
+                className="min-h-32 bg-black/40 border border-white/10 rounded-2xl p-4 text-white text-sm"
+              />
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/40 p-5">
+              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Pending Preview</div>
+              <pre className="text-sm text-white whitespace-pre-wrap">{pendingPreview}</pre>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-white">Trade Activated Template</Label>
+              <Textarea
+                value={activatedTemplate}
+                onChange={(e) => setActivatedTemplate(e.target.value)}
+                className="min-h-32 bg-black/40 border border-white/10 rounded-2xl p-4 text-white text-sm"
+              />
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/40 p-5">
+              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Activated Preview</div>
+              <pre className="text-sm text-white whitespace-pre-wrap">{activatedPreview}</pre>
             </div>
           </div>
         </div>

@@ -63,10 +63,27 @@ const fetchTrades = async (status: "open" | "closed") => {
   return json.trades;
 };
 
+const fetchLifecycleTrades = async (status: "pending" | "open" | "closed") => {
+  const res = await fetch(`/api/trades?status=${encodeURIComponent(status)}`);
+  if (!res.ok) throw new Error("Failed to fetch trades");
+  const json = (await res.json()) as { trades: Trade[] };
+  return json.trades;
+};
+
 export const useMt5Trades = (status: "open" | "closed", enabled: boolean) => {
   return useQuery({
     queryKey: ["mt5", "trades", status],
     queryFn: () => fetchTrades(status),
+    enabled,
+    staleTime: 3_000,
+    refetchInterval: 5_000,
+  });
+};
+
+export const useTrades = (status: "pending" | "open" | "closed", enabled: boolean) => {
+  return useQuery({
+    queryKey: ["trades", status],
+    queryFn: () => fetchLifecycleTrades(status),
     enabled,
     staleTime: 3_000,
     refetchInterval: 5_000,

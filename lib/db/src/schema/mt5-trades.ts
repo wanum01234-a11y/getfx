@@ -3,8 +3,10 @@ import { pgTable, text, numeric, timestamp, jsonb } from "drizzle-orm/pg-core";
 export const mt5TradesTable = pgTable("mt5_trades", {
   id: text("id").primaryKey(),
   ticket: text("ticket").unique(),
+  orderId: text("order_id").unique(),
   symbol: text("symbol").notNull(),
   type: text("type").notNull(),
+  orderType: text("order_type"),
   lot: numeric("lot", { precision: 18, scale: 4 }).notNull().default("0"),
   entryPrice: numeric("entry_price", { precision: 18, scale: 6 }).notNull().default("0"),
   currentPrice: numeric("current_price", { precision: 18, scale: 6 }),

@@ -11,8 +11,12 @@ Profit: {profit}`;
 export const whatsappVariables = [
   { key: "{symbol}", label: "Symbol", description: "Trading pair, for example BTC/USD" },
   { key: "{type}", label: "Type", description: "Buy or Sell" },
+  { key: "{order_type}", label: "Order Type", description: "Market/Pending order type when available" },
   { key: "{lot}", label: "Lot", description: "Trade lot size" },
   { key: "{entry}", label: "Entry", description: "Entry price" },
+  { key: "{pending_entry}", label: "Pending Entry", description: "Pending order entry price (same as entry)" },
+  { key: "{sl}", label: "SL", description: "Stop loss" },
+  { key: "{tp}", label: "TP", description: "Take profit (TP1 or single TP)" },
   { key: "{current}", label: "Current", description: "Current market price for open trades" },
   { key: "{close}", label: "Close", description: "Close price for closed trades" },
   { key: "{profit}", label: "Profit", description: "Profit or loss amount" },
@@ -133,11 +137,17 @@ export const saveWhatsAppTemplate = (template: string) => {
 
 export const buildWhatsAppMessage = (trade: Trade, template = getSavedWhatsAppTemplate()) => {
   const expected = calculateExpected(trade);
+  const sl = trade.stopLoss;
+  const tp = expected.tp1;
   const values: Record<string, string> = {
     "{symbol}": trade.symbol,
     "{type}": trade.type,
+    "{order_type}": trade.orderType || "-",
     "{lot}": trade.lot.toFixed(2),
     "{entry}": formatPrice(trade.entryPrice),
+    "{pending_entry}": formatPrice(trade.entryPrice),
+    "{sl}": formatPrice(sl),
+    "{tp}": formatPrice(tp),
     "{current}": formatPrice(trade.currentPrice),
     "{close}": formatPrice(trade.closePrice),
     "{profit}": `${trade.profit >= 0 ? "+" : ""}$${trade.profit.toFixed(2)}`,
