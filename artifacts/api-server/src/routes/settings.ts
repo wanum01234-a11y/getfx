@@ -87,6 +87,8 @@ router.post("/clear-data", async (req, res) => {
       // Use TRUNCATE for a complete reset. Keep settings/system config tables intact.
       await tx.execute(sql.raw("TRUNCATE TABLE mt5_trades RESTART IDENTITY CASCADE"));
       await tx.execute(sql.raw("TRUNCATE TABLE mt5_account RESTART IDENTITY CASCADE"));
+
+      await tx.insert(client.mt5AccountTable).values({ id: "default", totalTrades: 0 } as never);
     });
 
     clearMt5InMemoryStore();

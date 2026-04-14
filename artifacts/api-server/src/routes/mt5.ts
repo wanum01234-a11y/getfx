@@ -251,6 +251,7 @@ type DbAccountRow = {
   equity: unknown;
   currency: string | null;
   timestamp: Date | null;
+  totalTrades?: unknown;
 };
 
 const getDbClient = async () => {
@@ -537,8 +538,12 @@ router.post("/webhook/mt5", async (req, res) => {
 
         const { db, mt5TradesTable, mt5AccountTable, appSettingsTable, eq } = client;
 
-        for (const { trade, raw } of mappedTrades) {
+        const tradeOpenIncrements: Array<{ ticket?: string; id: string }> = [];
+
+        for (const { trade, raw, previous } of mappedTrades) {
           const ticket = getTicketFromPayload(raw);
+          const isNewOpenEvent = (!previous || previous.status !== "Open") && trade.status === "Open";
+
           const tradeSet: Record<string, unknown> = {
             ticket: ticket ?? null,
             symbol: trade.symbol,
@@ -591,6 +596,41 @@ router.post("/webhook/mt5", async (req, res) => {
                 target: mt5TradesTable.id,
                 set: tradeSet as never,
               });
+          }
+
+          if (isNewOpenEvent) {
+            tradeOpenIncrements.push({ ticket, id: trade.id });
+          }
+        }
+
+        if (tradeOpenIncrements.length > 0) {
+          try {
+            await db.transaction(async (tx) => {
+              const existingRows = await tx
+                .select({ totalTrades: mt5AccountTable.totalTrades })
+                .from(mt5AccountTable)
+                .where(eq(mt5AccountTable.id, "default"))
+                .limit(1);
+
+              const current = Number((existingRows[0] as { totalTrades?: unknown } | undefined)?.totalTrades ?? 0);
+              const next = current + tradeOpenIncrements.length;
+
+              await tx
+                .insert(mt5AccountTable)
+                .values({
+                  id: "default",
+                  totalTrades: next,
+                })
+                .onConflictDoUpdate({
+                  target: mt5AccountTable.id,
+                  set: {
+                    totalTrades: next,
+                    updatedAt: new Date(),
+                  },
+                });
+            });
+          } catch (err) {
+            req.log.warn({ err, count: tradeOpenIncrements.length }, "Failed to increment lifetime total trades counter (ignored)");
           }
         }
 
@@ -718,6 +758,7 @@ router.get("/mt5/account", async (_req, res) => {
               equity: fromDbNumeric(row.equity),
               currency: row.currency ?? undefined,
               timestamp: row.timestamp ? row.timestamp.toISOString() : undefined,
+              totalTrades: Number((row as unknown as { totalTrades?: unknown }).totalTrades ?? 0),
             }
           : {},
       });
