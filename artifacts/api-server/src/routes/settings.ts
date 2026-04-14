@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { clearMt5InMemoryStore } from "./mt5";
 
 type SettingsRow = {
@@ -84,15 +84,28 @@ router.post("/clear-data", async (req, res) => {
   try {
     req.log.info("Clearing MT5 dashboard data");
     await client.db.transaction(async (tx) => {
-      await tx.delete(client.mt5TradesTable).execute();
-      await tx.delete(client.mt5AccountTable).execute();
+      // Use TRUNCATE for a complete reset. Keep settings/system config tables intact.
+      await tx.execute(sql.raw("TRUNCATE TABLE mt5_trades RESTART IDENTITY CASCADE"));
+      await tx.execute(sql.raw("TRUNCATE TABLE mt5_account RESTART IDENTITY CASCADE"));
     });
 
     clearMt5InMemoryStore();
 
+    const tradeCountRows = await client.db
+      .select({ count: sql<number>`count(*)` })
+      .from(client.mt5TradesTable);
+    const accountCountRows = await client.db
+      .select({ count: sql<number>`count(*)` })
+      .from(client.mt5AccountTable);
+
+    const tradesCount = Number((tradeCountRows[0] as { count?: unknown } | undefined)?.count ?? 0);
+    const accountCount = Number((accountCountRows[0] as { count?: unknown } | undefined)?.count ?? 0);
+
     req.log.info("Cleared MT5 dashboard data");
 
-    res.json({ ok: true });
+    req.log.info({ tradesCount, accountCount }, "Clear-data verification counts");
+
+    res.json({ ok: true, counts: { mt5Trades: tradesCount, mt5Account: accountCount } });
   } catch (err) {
     req.log.error({ err }, "Failed to clear dashboard data");
     res.status(500).json({ error: "FailedToClearData" });
