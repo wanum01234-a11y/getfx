@@ -247,9 +247,12 @@ export default function SettingsPage() {
 
                   {clearStep === 1 ? (
                     <AlertDialogAction
-                      onClick={() => {
+                      onClick={(e) => {
+                        // Keep dialog open for step 2 (Radix closes on Action click unless prevented)
+                        e.preventDefault();
                         setClearStep(2);
                         setClearAcknowledge(false);
+                        setClearDialogOpen(true);
                       }}
                     >
                       Continue

@@ -80,6 +80,15 @@ type CacheState = {
   loadedAt: number;
 };
 
+ const isMissingPipSettingsTableError = (err: unknown) => {
+   const anyErr = err as { code?: unknown; message?: unknown } | null;
+   if (!anyErr) return false;
+   // Postgres: undefined_table
+   if (anyErr.code === "42P01") return true;
+   const message = typeof anyErr.message === "string" ? anyErr.message : "";
+   return message.toLowerCase().includes("pip_settings") && message.toLowerCase().includes("does not exist");
+ };
+
 const cache: CacheState = {
   rows: [],
   loadedAt: 0,
@@ -133,18 +142,36 @@ const getCachedRows = async () => {
   const client = await getDbClient();
   if (!client) return [];
 
-  await ensureSeeded();
+  try {
+    await ensureSeeded();
 
-  const rows = (await client.db.select().from(client.pipSettingsTable)) as unknown as PipSettingRow[];
-  cache.rows = rows.map((r) => ({
-    id: r.id,
-    symbol: r.symbol,
-    category: r.category,
-    pipSize: fromDbNumeric(r.pipSize) ?? 0,
-    updatedAt: r.updatedAt?.toISOString?.() ? r.updatedAt.toISOString() : new Date().toISOString(),
-  }));
-  cache.loadedAt = now;
-  return cache.rows;
+    const rows = (await client.db.select().from(client.pipSettingsTable)) as unknown as PipSettingRow[];
+    cache.rows = rows.map((r) => ({
+      id: r.id,
+      symbol: r.symbol,
+      category: r.category,
+      pipSize: fromDbNumeric(r.pipSize) ?? 0,
+      updatedAt: r.updatedAt?.toISOString?.() ? r.updatedAt.toISOString() : new Date().toISOString(),
+    }));
+    cache.loadedAt = now;
+    return cache.rows;
+  } catch (err) {
+    // If migrations haven't been applied yet, do not crash the app.
+    // Serve in-memory defaults so pip calculations stay sane.
+    if (isMissingPipSettingsTableError(err)) {
+      cache.rows = DEFAULT_SEED.map((r, idx) => ({
+        id: idx + 1,
+        symbol: r.symbol,
+        category: r.category,
+        pipSize: r.pipSize,
+        updatedAt: new Date().toISOString(),
+      }));
+      cache.loadedAt = now;
+      return cache.rows;
+    }
+
+    throw err;
+  }
 };
 
 const router: IRouter = Router();
