@@ -2,6 +2,7 @@ import { pgTable, text, numeric, timestamp, jsonb } from "drizzle-orm/pg-core";
 
 export const mt5TradesTable = pgTable("mt5_trades", {
   id: text("id").primaryKey(),
+  ticket: text("ticket").unique(),
   symbol: text("symbol").notNull(),
   type: text("type").notNull(),
   lot: numeric("lot", { precision: 18, scale: 4 }).notNull().default("0"),

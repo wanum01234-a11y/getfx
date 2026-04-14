@@ -367,6 +367,11 @@ const mapMt5TradeToUiTrade = (payload: Mt5TradePayload): UiTrade | null => {
   return uiTrade;
 };
 
+const getTicketFromPayload = (payload: Mt5TradePayload): string | undefined => {
+  const t = coalesceString(payload.ticket);
+  return t ? String(t) : undefined;
+};
+
 const mergeUiTrade = (existing: UiTrade | undefined, next: UiTrade): UiTrade => {
   if (!existing) return next;
 
@@ -533,7 +538,9 @@ router.post("/webhook/mt5", async (req, res) => {
         const { db, mt5TradesTable, mt5AccountTable, appSettingsTable, eq } = client;
 
         for (const { trade, raw } of mappedTrades) {
+          const ticket = getTicketFromPayload(raw);
           const tradeSet: Record<string, unknown> = {
+            ticket: ticket ?? null,
             symbol: trade.symbol,
             type: trade.type,
             lot: toDbNumeric(trade.lot) ?? "0",
@@ -550,26 +557,41 @@ router.post("/webhook/mt5", async (req, res) => {
           if (hasOwn(raw, "closedAt")) tradeSet.closedAt = toDbTimestamp(trade.closedAt) ?? null;
           if (hasOwn(raw, "openedAt")) tradeSet.openedAt = toDbTimestamp(trade.openedAt) ?? new Date();
 
-          await db
-            .insert(mt5TradesTable)
-            .values({
-              id: trade.id,
-              symbol: trade.symbol,
-              type: trade.type,
-              lot: toDbNumeric(trade.lot) ?? "0",
-              entryPrice: toDbNumeric(trade.entryPrice) ?? "0",
-              currentPrice: toDbNumeric(trade.currentPrice) ?? null,
-              closePrice: toDbNumeric(trade.closePrice) ?? null,
-              profit: toDbNumeric(trade.profit) ?? "0",
-              status: trade.status,
-              openedAt: toDbTimestamp(trade.openedAt) ?? new Date(),
-              closedAt: toDbTimestamp(trade.closedAt) ?? null,
-              raw,
-            })
-            .onConflictDoUpdate({
-              target: mt5TradesTable.id,
-              set: tradeSet as never,
-            });
+          const insertValues: Record<string, unknown> = {
+            id: trade.id,
+            ticket: ticket ?? null,
+            symbol: trade.symbol,
+            type: trade.type,
+            lot: toDbNumeric(trade.lot) ?? "0",
+            entryPrice: toDbNumeric(trade.entryPrice) ?? "0",
+            currentPrice: toDbNumeric(trade.currentPrice) ?? null,
+            closePrice: toDbNumeric(trade.closePrice) ?? null,
+            profit: toDbNumeric(trade.profit) ?? "0",
+            status: trade.status,
+            openedAt: toDbTimestamp(trade.openedAt) ?? new Date(),
+            closedAt: toDbTimestamp(trade.closedAt) ?? null,
+            raw,
+          };
+
+          if (ticket) {
+            // Ticket-based upsert prevents duplicates when open/close use different ids.
+            await db
+              .insert(mt5TradesTable)
+              .values(insertValues as never)
+              .onConflictDoUpdate({
+                target: mt5TradesTable.ticket,
+                set: tradeSet as never,
+              });
+          } else {
+            // Fallback: id-based upsert.
+            await db
+              .insert(mt5TradesTable)
+              .values(insertValues as never)
+              .onConflictDoUpdate({
+                target: mt5TradesTable.id,
+                set: tradeSet as never,
+              });
+          }
         }
 
         await db
