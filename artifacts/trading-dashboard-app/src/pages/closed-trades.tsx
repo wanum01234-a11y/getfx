@@ -1,19 +1,26 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Layout } from "@/components/layout";
 import { mockClosedTrades, Trade } from "@/lib/mock-data";
-import { openWhatsAppShare } from "@/lib/whatsapp-template";
 import { useDemoMode, useMt5Trades } from "@/lib/mt5";
+import { WhatsAppTradeShareDialog } from "@/components/whatsapp-trade-share-dialog";
 import { motion } from "framer-motion";
 import { Clock, Calendar, ArrowRight, MessageCircle } from "lucide-react";
 
 export default function ClosedTrades() {
   const useDemo = useDemoMode();
   const mt5 = useMt5Trades("closed", !useDemo);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareInitialId, setShareInitialId] = useState<string | undefined>(undefined);
 
   const trades = useMemo<Trade[]>(() => {
     if (useDemo) return mockClosedTrades;
     return Array.isArray(mt5.data) ? mt5.data : [];
   }, [mt5.data, useDemo]);
+
+  const openShare = (tradeId?: string) => {
+    setShareInitialId(tradeId);
+    setShareOpen(true);
+  };
 
   return (
     <Layout>
@@ -90,7 +97,7 @@ export default function ClosedTrades() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button
-                        onClick={() => openWhatsAppShare(trade)}
+                        onClick={() => openShare(trade.id)}
                         className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 hover:bg-primary hover:text-white text-muted-foreground transition-all hover:shadow-[0_0_14px_rgba(0,191,255,0.35)]"
                         title="Share closed trade via WhatsApp"
                         aria-label={`Share ${trade.symbol} closed trade via WhatsApp`}
@@ -109,6 +116,13 @@ export default function ClosedTrades() {
             </div>
           )}
         </div>
+
+        <WhatsAppTradeShareDialog
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          trades={trades}
+          initialSelectedTradeId={shareInitialId}
+        />
       </div>
     </Layout>
   );

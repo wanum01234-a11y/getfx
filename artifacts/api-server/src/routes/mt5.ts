@@ -16,6 +16,13 @@ type Mt5TradePayload = {
   currentPrice?: number;
   closePrice?: number;
   profit?: number;
+  stopLoss?: number;
+  sl?: number;
+  takeProfit?: number;
+  tp?: number;
+  tp1?: number;
+  tp2?: number;
+  tp3?: number;
   status?: string;
   openedAt?: string;
   closedAt?: string;
@@ -45,6 +52,11 @@ export type UiTrade = {
   currentPrice?: number;
   closePrice?: number;
   profit: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  tp1?: number;
+  tp2?: number;
+  tp3?: number;
   status: "Open" | "Closed";
   duration?: string;
   openedAt: string;
@@ -362,6 +374,11 @@ const mapMt5TradeToUiTrade = (payload: Mt5TradePayload): UiTrade | null => {
     currentPrice: coalesceNumber(payload.currentPrice),
     closePrice: coalesceNumber(payload.closePrice),
     profit: coalesceNumber(payload.profit) ?? 0,
+    stopLoss: coalesceNumber(payload.stopLoss, payload.sl),
+    takeProfit: coalesceNumber(payload.takeProfit, payload.tp),
+    tp1: coalesceNumber(payload.tp1),
+    tp2: coalesceNumber(payload.tp2),
+    tp3: coalesceNumber(payload.tp3),
     status,
     openedAt,
     closedAt: status === "Closed" ? coalesceString(payload.closedAt) : undefined,
@@ -413,6 +430,7 @@ const fromDbNumeric = (value: unknown): number | undefined => {
 };
 
 const rowToUiTrade = (row: DbTradeRow): UiTrade => {
+  const raw = (row.raw || {}) as Partial<Mt5TradePayload>;
   return {
     id: row.id,
     symbol: row.symbol,
@@ -422,6 +440,11 @@ const rowToUiTrade = (row: DbTradeRow): UiTrade => {
     currentPrice: fromDbNumeric(row.currentPrice),
     closePrice: fromDbNumeric(row.closePrice),
     profit: fromDbNumeric(row.profit) ?? 0,
+    stopLoss: coalesceNumber((raw as Mt5TradePayload).stopLoss, (raw as Mt5TradePayload).sl),
+    takeProfit: coalesceNumber((raw as Mt5TradePayload).takeProfit, (raw as Mt5TradePayload).tp),
+    tp1: coalesceNumber((raw as Mt5TradePayload).tp1),
+    tp2: coalesceNumber((raw as Mt5TradePayload).tp2),
+    tp3: coalesceNumber((raw as Mt5TradePayload).tp3),
     status: row.status === "Closed" ? "Closed" : "Open",
     openedAt: row.openedAt.toISOString(),
     closedAt: row.closedAt ? row.closedAt.toISOString() : undefined,

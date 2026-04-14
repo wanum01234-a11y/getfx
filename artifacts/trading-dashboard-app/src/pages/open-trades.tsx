@@ -1,19 +1,26 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Layout } from "@/components/layout";
 import { mockOpenTrades, Trade } from "@/lib/mock-data";
-import { openWhatsAppShare } from "@/lib/whatsapp-template";
 import { useDemoMode, useMt5Trades } from "@/lib/mt5";
+import { WhatsAppTradeShareDialog } from "@/components/whatsapp-trade-share-dialog";
 import { motion } from "framer-motion";
 import { MessageCircle } from "lucide-react";
 
 export default function OpenTrades() {
   const useDemo = useDemoMode();
   const mt5 = useMt5Trades("open", !useDemo);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareInitialId, setShareInitialId] = useState<string | undefined>(undefined);
 
   const trades = useMemo<Trade[]>(() => {
     if (useDemo) return mockOpenTrades;
     return Array.isArray(mt5.data) ? mt5.data : [];
   }, [mt5.data, useDemo]);
+
+  const openShare = (tradeId?: string) => {
+    setShareInitialId(tradeId);
+    setShareOpen(true);
+  };
 
   return (
     <Layout>
@@ -69,7 +76,7 @@ export default function OpenTrades() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button 
-                        onClick={() => openWhatsAppShare(trade)}
+                        onClick={() => openShare(trade.id)}
                         className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 hover:bg-primary hover:text-white text-muted-foreground transition-all"
                         title="Share via WhatsApp"
                         aria-label={`Share ${trade.symbol} open trade via WhatsApp`}
@@ -88,6 +95,13 @@ export default function OpenTrades() {
             </div>
           )}
         </div>
+
+        <WhatsAppTradeShareDialog
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          trades={trades}
+          initialSelectedTradeId={shareInitialId}
+        />
       </div>
     </Layout>
   );

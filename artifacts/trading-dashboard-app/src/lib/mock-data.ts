@@ -7,6 +7,11 @@ export interface Trade {
   currentPrice?: number;
   closePrice?: number;
   profit: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  tp1?: number;
+  tp2?: number;
+  tp3?: number;
   status: "Open" | "Closed";
   duration?: string;
   openedAt: string;
