@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Activity, History, Settings, Bell, Search, User, MessageCircle, Calculator, Sun, Moon, Menu, X } from "lucide-react";
+import { LayoutDashboard, Activity, History, Settings, Bell, Search, User, MessageCircle, Calculator, Sun, Moon, Menu, X, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 
@@ -45,6 +45,7 @@ export function Layout({ children }: LayoutProps) {
     { name: "Trading Tools", href: "/trading-tools", icon: Calculator },
     { name: "WhatsApp Template", href: "/whatsapp-template", icon: MessageCircle },
     { name: "WhatsApp Automation", href: "/whatsapp-automation", icon: MessageCircle },
+    { name: "Signals Hub", href: "/signals-hub", icon: Radio },
     { name: "Settings", href: "/settings", icon: Settings },
     { name: "Pip Configuration", href: "/settings/pip-config", icon: Settings },
   ];

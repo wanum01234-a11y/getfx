@@ -13,6 +13,7 @@ import WhatsAppAutomationPage from "@/pages/whatsapp-automation";
 import SettingsPage from "@/pages/settings";
 import TradingToolsPage from "@/pages/trading-tools";
 import PipConfigPage from "@/pages/pip-config";
+import SignalsHubPage from "@/pages/signals-hub";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +25,7 @@ function Router() {
       <Route path="/closed-trades" component={ClosedTrades} />
       <Route path="/whatsapp-template" component={WhatsAppTemplateSettings} />
       <Route path="/whatsapp-automation" component={WhatsAppAutomationPage} />
+      <Route path="/signals-hub" component={SignalsHubPage} />
       <Route path="/trading-tools" component={TradingToolsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/settings/pip-config" component={PipConfigPage} />

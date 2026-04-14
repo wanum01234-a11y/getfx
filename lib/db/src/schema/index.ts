@@ -22,3 +22,4 @@ export * from "./mt5-account.ts";
 export * from "./app-settings.ts";
 export * from "./settings.ts";
 export * from "./pip-settings.ts";
+export * from "./signals-templates.ts";

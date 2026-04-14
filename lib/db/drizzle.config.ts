@@ -11,6 +11,7 @@ export default defineConfig({
     "./src/schema/app-settings.ts",
     "./src/schema/settings.ts",
     "./src/schema/pip-settings.ts",
+    "./src/schema/signals-templates.ts",
   ],
   dialect: "postgresql",
   dbCredentials: {
