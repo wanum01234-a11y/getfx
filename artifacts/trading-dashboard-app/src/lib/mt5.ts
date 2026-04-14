@@ -72,3 +72,28 @@ export const useMt5Trades = (status: "open" | "closed", enabled: boolean) => {
     refetchInterval: 5_000,
   });
 };
+
+type Mt5Account = {
+  balance?: number;
+  equity?: number;
+  currency?: string;
+  timestamp?: string;
+  totalTrades?: number;
+};
+
+const fetchAccount = async () => {
+  const res = await fetch(`/api/mt5/account`);
+  if (!res.ok) throw new Error("Failed to fetch MT5 account");
+  const json = (await res.json()) as { account: Mt5Account };
+  return json.account;
+};
+
+export const useMt5Account = (enabled: boolean) => {
+  return useQuery({
+    queryKey: ["mt5", "account"],
+    queryFn: fetchAccount,
+    enabled,
+    staleTime: 3_000,
+    refetchInterval: 5_000,
+  });
+};

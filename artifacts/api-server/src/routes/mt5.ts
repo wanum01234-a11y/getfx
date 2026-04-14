@@ -264,6 +264,8 @@ const getDbClient = async () => {
       mt5AccountTable: mod.mt5AccountTable,
       appSettingsTable: mod.appSettingsTable,
       eq: orm.eq,
+      inArray: orm.inArray,
+      or: orm.or,
     };
   } catch {
     return null;
@@ -536,13 +538,46 @@ router.post("/webhook/mt5", async (req, res) => {
           return;
         }
 
-        const { db, mt5TradesTable, mt5AccountTable, appSettingsTable, eq } = client;
+        const { db, mt5TradesTable, mt5AccountTable, appSettingsTable, eq, inArray, or } = client;
 
         const tradeOpenIncrements: Array<{ ticket?: string; id: string }> = [];
 
-        for (const { trade, raw, previous } of mappedTrades) {
+        const openTickets: string[] = [];
+        const openIds: string[] = [];
+        for (const { trade, raw } of mappedTrades) {
+          if (trade.status !== "Open") continue;
           const ticket = getTicketFromPayload(raw);
-          const isNewOpenEvent = (!previous || previous.status !== "Open") && trade.status === "Open";
+          if (ticket) openTickets.push(String(ticket));
+          else openIds.push(trade.id);
+        }
+
+        const existingTickets = new Set<string>();
+        const existingIds = new Set<string>();
+        if (openTickets.length > 0 || openIds.length > 0) {
+          const conds: unknown[] = [];
+          if (openTickets.length > 0) conds.push(inArray(mt5TradesTable.ticket, openTickets as never));
+          if (openIds.length > 0) conds.push(inArray(mt5TradesTable.id, openIds as never));
+
+          const whereClause = conds.length === 1 ? (conds[0] as never) : (or(...(conds as never[])) as never);
+          const existingRows = await db
+            .select({ ticket: mt5TradesTable.ticket, id: mt5TradesTable.id })
+            .from(mt5TradesTable)
+            .where(whereClause);
+
+          for (const r of existingRows as Array<{ ticket: unknown; id: unknown }>) {
+            const t = r.ticket === null || r.ticket === undefined ? "" : String(r.ticket);
+            const i = r.id === null || r.id === undefined ? "" : String(r.id);
+            if (t) existingTickets.add(t);
+            if (i) existingIds.add(i);
+          }
+        }
+
+        for (const { trade, raw } of mappedTrades) {
+          const ticket = getTicketFromPayload(raw);
+          const normalizedTicket = ticket ? String(ticket) : undefined;
+          const isNewOpenEvent =
+            trade.status === "Open" &&
+            (normalizedTicket ? !existingTickets.has(normalizedTicket) : !existingIds.has(trade.id));
 
           const tradeSet: Record<string, unknown> = {
             ticket: ticket ?? null,
@@ -599,7 +634,9 @@ router.post("/webhook/mt5", async (req, res) => {
           }
 
           if (isNewOpenEvent) {
-            tradeOpenIncrements.push({ ticket, id: trade.id });
+            tradeOpenIncrements.push({ ticket: normalizedTicket, id: trade.id });
+            if (normalizedTicket) existingTickets.add(normalizedTicket);
+            else existingIds.add(trade.id);
           }
         }
 

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion, type Variants } from "framer-motion";
 import { Layout } from "@/components/layout";
 import { mockDashboardStats, mockChartDataDaily, mockChartDataWeekly, mockChartDataMonthly, type Trade } from "@/lib/mock-data";
-import { useDemoMode, useMt5Trades } from "@/lib/mt5";
+import { useDemoMode, useMt5Account, useMt5Trades } from "@/lib/mt5";
 import { calculateMetrics, dedupeTradesById } from "@/lib/metrics";
 import { fetchPipSettings } from "@/lib/pip-settings";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
@@ -47,6 +47,7 @@ export default function Dashboard() {
   const useDemo = useDemoMode();
   const openTradesQuery = useMt5Trades("open", !useDemo);
   const closedTradesQuery = useMt5Trades("closed", !useDemo);
+  const accountQuery = useMt5Account(!useDemo);
   const [timeframe, setTimeframe] = useState<"Daily" | "Weekly" | "Monthly">("Weekly");
 
   const pipSettingsQuery = useQuery({
@@ -87,6 +88,12 @@ export default function Dashboard() {
 
     return calculateMetrics({ openTrades, closedTrades, pipSizeOverrides });
   }, [closedTrades, openTrades, pipSizeOverrides, useDemo]);
+
+  const lifetimeTotalTrades = useMemo(() => {
+    if (useDemo) return mockDashboardStats.totalTrades;
+    const v = Number((accountQuery.data as { totalTrades?: unknown } | undefined)?.totalTrades ?? 0);
+    return Number.isFinite(v) ? v : 0;
+  }, [accountQuery.data, useDemo]);
 
   const chartData = useMemo(() => {
     if (useDemo) {
@@ -141,7 +148,7 @@ export default function Dashboard() {
           />
           <StatCard 
             title="Total Trades" 
-            value={resolvedStats.totalTrades.toString()} 
+            value={lifetimeTotalTrades.toString()} 
             icon={<Hash className="w-5 h-5" />} 
             highlight="muted"
           />
